@@ -38,10 +38,12 @@ class MainActivity : ComponentActivity() {
     private var selectedFileName by mutableStateOf("Belum ada file dipilih")
     private var entries by mutableStateOf<List<LgpEntry>>(emptyList())
     private var selectedMember by mutableStateOf<LgpMember?>(null)
+    private var fieldAnalysis by mutableStateOf<FieldAnalysis?>(null)
     private var searchQuery by mutableStateOf("")
     private var status by mutableStateOf("Pilih flevel.lgp untuk mulai membaca.")
     private var isReading by mutableStateOf(false)
     private var isExporting by mutableStateOf(false)
+    private var isAnalyzing by mutableStateOf(false)
 
     private val openLgp = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -51,6 +53,7 @@ class MainActivity : ComponentActivity() {
             selectedFileName = queryDisplayName(uri)
             entries = emptyList()
             selectedMember = null
+            fieldAnalysis = null
             searchQuery = ""
             status = "File dipilih. Tekan Baca Arsip untuk memindai indeks."
             try {
@@ -180,27 +183,68 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
-                            }
-                            selectedMember?.let { member ->
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "Dipilih: ${member.entry.name} • ${formatSize(member.size)}",
-                                    color = Color(0xFFB8D6FF),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                if (member.storedName != member.entry.name) {
-                                    Text(
-                                        "Catatan: nama pada header data berbeda (${member.storedName}).",
-                                        color = Color(0xFFFFD18A),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                Button(
-                                    onClick = { createExport.launch(member.entry.name) },
-                                    enabled = !isExporting,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
+                                item {
+                                    selectedMember?.let { member ->
+                                        Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                "DIPILIH: ${member.entry.name} • ${formatSize(member.size)}",
+                                                color = Color(0xFFB8D6FF),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                            if (member.storedName != member.entry.name) {
+                                                Text(
+                                                    "Catatan: nama pada header data berbeda (${member.storedName}).",
+                                                    color = Color(0xFFFFD18A),
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            Button(
+                                                onClick = { createExport.launch(member.entry.name) },
+                                                enabled = !isExporting,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
+                                            }
+                                            Button(
+                                                onClick = { analyzeSelectedMember() },
+                                                enabled = !isAnalyzing,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(if (isAnalyzing) "Menganalisis..." else "Analisis Struktur Field")
+                                            }
+                                            fieldAnalysis?.let { analysis ->
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(
+                                                    "HASIL ANALISIS",
+                                                    color = Color(0xFF9CC7FF),
+                                                    letterSpacing = 1.sp
+                                                )
+                                                Text(
+                                                    "Dekompresi berhasil • ${formatSize(analysis.decompressedSize.toLong())} • ${analysis.sectionCount} section",
+                                                    color = Color(0xFFB8D6FF),
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                                analysis.sections.forEach { section ->
+                                                    Text(
+                                                        "${section.index}. ${section.name}",
+                                                        color = Color.White,
+                                                        style = MaterialTheme.typography.bodySmall
+                                                    )
+                                                    Text(
+                                                        "Offset 0x${section.offset.toString(16).uppercase()} • Data ${formatSize(section.dataLength)}",
+                                                        color = Color.Gray,
+                                                        style = MaterialTheme.typography.labelSmall
+                                                    )
+                                                }
+                                                Text(
+                                                    "Pemeriksaan ini memvalidasi header dan batas 9 section. Isi skrip/dialog belum diuraikan.",
+                                                    color = Color(0xFFFFD18A),
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -208,7 +252,7 @@ class MainActivity : ComponentActivity() {
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Versi 0.3.0 • LGP Browser & Extractor",
+                            "Versi 0.4.0 • Field File Analyzer",
                             color = Color.Gray,
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -222,6 +266,7 @@ class MainActivity : ComponentActivity() {
         val uri = selectedFile ?: return
         isReading = true
         selectedMember = null
+        fieldAnalysis = null
         status = "Membaca header dan tabel indeks..."
         Thread {
             try {
@@ -248,6 +293,7 @@ class MainActivity : ComponentActivity() {
     private fun inspectEntry(entry: LgpEntry) {
         val uri = selectedFile ?: return
         selectedMember = null
+        fieldAnalysis = null
         status = "Membaca detail ${entry.name}..."
         Thread {
             try {
@@ -265,6 +311,57 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun analyzeSelectedMember() {
+        val uri = selectedFile ?: return
+        val member = selectedMember ?: return
+        isAnalyzing = true
+        fieldAnalysis = null
+        status = "Mendekompresi dan memeriksa struktur ${member.entry.name}..."
+        Thread {
+            try {
+                if (member.size > 64L * 1024L * 1024L) {
+                    throw IllegalArgumentException("File terlalu besar untuk dianalisis dalam satu proses.")
+                }
+                val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                    skipFully(input, member.dataOffset)
+                    val data = ByteArray(member.size.toInt())
+                    var position = 0
+                    while (position < data.size) {
+                        val read = input.read(data, position, data.size - position)
+                        if (read < 0) throw IllegalArgumentException("Data entri terpotong saat dibaca.")
+                        position += read
+                    }
+                    data
+                } ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+
+                val result = FieldAnalyzer.analyze(bytes)
+                runOnUiThread {
+                    fieldAnalysis = result
+                    isAnalyzing = false
+                    status = "Analisis berhasil: header dan 9 section terdeteksi."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    isAnalyzing = false
+                    status = "Gagal analisis: ${error.message ?: "Format belum dikenali"}"
+                }
+            }
+        }.start()
+    }
+
+    private fun skipFully(input: java.io.InputStream, byteCount: Long) {
+        var remaining = byteCount
+        while (remaining > 0L) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0L) {
+                remaining -= skipped
+            } else {
+                if (input.read() < 0) throw IllegalArgumentException("Arsip terpotong saat mencari data.")
+                remaining--
+            }
+        }
     }
 
     private fun exportMember(source: Uri, destination: Uri, member: LgpMember) {
@@ -305,7 +402,7 @@ class MainActivity : ComponentActivity() {
     private fun formatSize(size: Long): String {
         return when {
             size >= 1024L * 1024L -> String.format("%.2f MB", size / (1024.0 * 1024.0))
-            size >= 1024L -> String.format("%.1f KB", size / 1024.0)
+            size >= 1024L -> String.format("%.2f KB", size / 1024.0)
             else -> "${size} B"
         }
     }
