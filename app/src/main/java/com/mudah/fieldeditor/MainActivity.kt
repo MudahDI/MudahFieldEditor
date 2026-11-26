@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -35,8 +37,11 @@ class MainActivity : ComponentActivity() {
     private var selectedFile by mutableStateOf<Uri?>(null)
     private var selectedFileName by mutableStateOf("Belum ada file dipilih")
     private var entries by mutableStateOf<List<LgpEntry>>(emptyList())
+    private var selectedMember by mutableStateOf<LgpMember?>(null)
+    private var searchQuery by mutableStateOf("")
     private var status by mutableStateOf("Pilih flevel.lgp untuk mulai membaca.")
     private var isReading by mutableStateOf(false)
+    private var isExporting by mutableStateOf(false)
 
     private val openLgp = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -45,6 +50,8 @@ class MainActivity : ComponentActivity() {
             selectedFile = uri
             selectedFileName = queryDisplayName(uri)
             entries = emptyList()
+            selectedMember = null
+            searchQuery = ""
             status = "File dipilih. Tekan Baca Arsip untuk memindai indeks."
             try {
                 contentResolver.takePersistableUriPermission(
@@ -53,6 +60,16 @@ class MainActivity : ComponentActivity() {
                 )
             } catch (_: SecurityException) {
             }
+        }
+    }
+
+    private val createExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val source = selectedFile
+        val member = selectedMember
+        if (uri != null && source != null && member != null) {
+            exportMember(source, uri, member)
         }
     }
 
@@ -87,20 +104,19 @@ class MainActivity : ComponentActivity() {
                             text = "Final Fantasy VII",
                             style = MaterialTheme.typography.headlineMedium
                         )
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = { openLgp.launch(arrayOf("*/*")) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Pilih flevel.lgp")
                         }
-                        Spacer(Modifier.height(8.dp))
                         Text(
                             text = selectedFileName,
                             color = Color.LightGray,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                         Button(
                             onClick = { readSelectedArchive() },
                             enabled = selectedFile != null && !isReading,
@@ -108,32 +124,54 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text(if (isReading) "Sedang membaca..." else "Baca Arsip")
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             text = status,
                             color = if (status.startsWith("Gagal")) Color(0xFFFF9B9B) else Color.LightGray,
                             style = MaterialTheme.typography.bodySmall
                         )
+
                         if (entries.isNotEmpty()) {
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("Cari nama file") }
+                            )
+                            val filteredEntries = entries.filter {
+                                it.name.contains(searchQuery.trim(), ignoreCase = true)
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("DAFTAR FILE", color = Color(0xFF9CC7FF), letterSpacing = 1.sp)
-                                Text("${entries.size} entri", color = Color.LightGray)
+                                Text("${filteredEntries.size} / ${entries.size}", color = Color.LightGray)
                             }
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
                                     .background(Color(0xFF191E25), RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                             ) {
-                                items(entries) { entry ->
-                                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+                                items(filteredEntries) { entry ->
+                                    val isSelected = selectedMember?.entry == entry
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                if (isSelected) Color(0xFF26384D) else Color.Transparent,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { inspectEntry(entry) }
+                                            .padding(horizontal = 9.dp, vertical = 9.dp)
+                                    ) {
                                         Text(entry.name, color = Color.White, style = MaterialTheme.typography.bodyMedium)
                                         Text(
                                             "Offset: 0x${entry.offset.toString(16).uppercase()}",
@@ -143,12 +181,34 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            selectedMember?.let { member ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Dipilih: ${member.entry.name} • ${formatSize(member.size)}",
+                                    color = Color(0xFFB8D6FF),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (member.storedName != member.entry.name) {
+                                    Text(
+                                        "Catatan: nama pada header data berbeda (${member.storedName}).",
+                                        color = Color(0xFFFFD18A),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Button(
+                                    onClick = { createExport.launch(member.entry.name) },
+                                    enabled = !isExporting,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
+                                }
+                            }
                         } else {
                             Spacer(Modifier.weight(1f))
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(
-                            "Versi 0.2.0 • LGP Reader",
+                            "Versi 0.3.0 • LGP Browser & Extractor",
                             color = Color.Gray,
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -161,21 +221,18 @@ class MainActivity : ComponentActivity() {
     private fun readSelectedArchive() {
         val uri = selectedFile ?: return
         isReading = true
+        selectedMember = null
         status = "Membaca header dan tabel indeks..."
         Thread {
             try {
-                val length = try {
-                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-                } catch (_: Exception) {
-                    -1L
-                }
+                val length = getArchiveLength(uri)
                 val archive = contentResolver.openInputStream(uri)?.use {
                     LgpReader.read(it, length)
                 } ?: throw IllegalStateException("Android tidak dapat membuka file ini.")
 
                 runOnUiThread {
                     entries = archive.entries
-                    status = "Berhasil membaca indeks LGP. Belum ada data yang diubah."
+                    status = "Indeks terbaca: ${archive.fileCount} entri. Pilih entri untuk melihat ukurannya."
                     isReading = false
                 }
             } catch (error: Exception) {
@@ -186,6 +243,71 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun inspectEntry(entry: LgpEntry) {
+        val uri = selectedFile ?: return
+        selectedMember = null
+        status = "Membaca detail ${entry.name}..."
+        Thread {
+            try {
+                val length = getArchiveLength(uri)
+                val member = contentResolver.openInputStream(uri)?.use {
+                    LgpReader.readMember(it, entry, length)
+                } ?: throw IllegalStateException("Tidak dapat membuka arsip.")
+                runOnUiThread {
+                    selectedMember = member
+                    status = "Detail entri berhasil dibaca."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    status = "Gagal membaca entri: ${error.message ?: "Kesalahan tidak diketahui"}"
+                }
+            }
+        }.start()
+    }
+
+    private fun exportMember(source: Uri, destination: Uri, member: LgpMember) {
+        isExporting = true
+        status = "Mengekspor ${member.entry.name}..."
+        Thread {
+            try {
+                val input = contentResolver.openInputStream(source)
+                    ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+                val output = contentResolver.openOutputStream(destination)
+                    ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+                input.use { sourceStream ->
+                    output.use { outputStream ->
+                        LgpReader.extractMember(sourceStream, outputStream, member)
+                    }
+                }
+                runOnUiThread {
+                    isExporting = false
+                    status = "Ekspor ${member.entry.name} berhasil."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    isExporting = false
+                    status = "Gagal mengekspor: ${error.message ?: "Kesalahan tidak diketahui"}"
+                }
+            }
+        }.start()
+    }
+
+    private fun getArchiveLength(uri: Uri): Long {
+        return try {
+            contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (_: Exception) {
+            -1L
+        }
+    }
+
+    private fun formatSize(size: Long): String {
+        return when {
+            size >= 1024L * 1024L -> String.format("%.2f MB", size / (1024.0 * 1024.0))
+            size >= 1024L -> String.format("%.1f KB", size / 1024.0)
+            else -> "${size} B"
+        }
     }
 
     private fun queryDisplayName(uri: Uri): String {
