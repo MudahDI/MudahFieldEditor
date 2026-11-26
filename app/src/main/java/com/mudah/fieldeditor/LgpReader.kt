@@ -18,6 +18,13 @@ data class LgpArchive(
     val entries: List<LgpEntry>
 )
 
+data class LgpMember(
+    val entry: LgpEntry,
+    val storedName: String,
+    val size: Long,
+    val dataOffset: Long
+)
+
 object LgpReader {
     private val ASCII: Charset = Charsets.US_ASCII
     private val CREATOR = "SQUARESOFT".toByteArray(ASCII)
@@ -86,5 +93,59 @@ object LgpReader {
         }
 
         return LgpArchive(count, entries)
+    }
+
+    fun readMember(
+        input: InputStream,
+        entry: LgpEntry,
+        archiveLength: Long = -1L
+    ): LgpMember {
+        skipFully(input, entry.offset)
+        val header = ByteArray(24)
+        DataInputStream(input).readFully(header)
+
+        val zero = header.copyOfRange(0, 20).indexOf(0)
+        val nameLength = if (zero >= 0) zero else 20
+        val storedName = String(header, 0, nameLength, ASCII).trim()
+        val size = ByteBuffer.wrap(header, 20, 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .int.toLong() and 0xFFFFFFFFL
+        val dataOffset = entry.offset + 24L
+
+        if (archiveLength >= 0L && (dataOffset > archiveLength || size > archiveLength - dataOffset)) {
+            throw IllegalArgumentException("Ukuran data entri ${entry.name} melewati batas arsip.")
+        }
+        if (storedName.isEmpty()) {
+            throw IllegalArgumentException("Header data untuk ${entry.name} tidak memiliki nama.")
+        }
+
+        return LgpMember(entry, storedName, size, dataOffset)
+    }
+
+    fun extractMember(input: InputStream, output: java.io.OutputStream, member: LgpMember) {
+        skipFully(input, member.dataOffset)
+        val buffer = ByteArray(64 * 1024)
+        var remaining = member.size
+        while (remaining > 0L) {
+            val amount = minOf(buffer.size.toLong(), remaining).toInt()
+            val read = input.read(buffer, 0, amount)
+            if (read < 0) throw IllegalArgumentException("Data ${member.entry.name} terpotong.")
+            output.write(buffer, 0, read)
+            remaining -= read.toLong()
+        }
+        output.flush()
+    }
+
+    private fun skipFully(input: InputStream, byteCount: Long) {
+        var remaining = byteCount
+        while (remaining > 0L) {
+            val skipped = input.skip(remaining)
+            if (skipped > 0L) {
+                remaining -= skipped
+            } else {
+                if (input.read() < 0) throw IllegalArgumentException("Arsip terpotong saat mencari data.")
+                remaining--
+            }
+        }
     }
 }
