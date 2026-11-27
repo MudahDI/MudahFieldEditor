@@ -295,12 +295,12 @@ class MainActivity : ComponentActivity() {
                                 }
                                 if (entries.isNotEmpty()) {
                                     Button(
-                                        onClick = { openBatchTranslationImport.launch(arrayOf("application/json", "text/json")) },
+                                        onClick = { openBatchTranslationImport.launch(arrayOf("text/plain", "text/*")) },
                                         enabled = !isExporting,
                                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                                    ) { Text("Impor Banyak Proyek JSON") }
+                                    ) { Text("Impor TXT Massal") }
                                     Text(
-                                        "Proyek massal dimuat: ${batchTranslations.size} field",
+                                        "Terjemahan TXT dimuat: ${batchTranslations.size} field",
                                         color = Color(0xFF9FE0B2),
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity() {
                                         onClick = { createBatchArchiveExport.launch("flevel_translated.lgp") },
                                         enabled = batchTranslations.isNotEmpty() && !isExporting,
                                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                                    ) { Text("Bangun LGP dari Proyek Massal (${batchTranslations.size})") }
+                                    ) { Text("Bangun flevel.lgp dari TXT (${batchTranslations.size} field)") }
                                 }
                                 Text(
                                     status,
@@ -881,7 +881,7 @@ class MainActivity : ComponentActivity() {
         val archiveEntries = entries.toList()
         val projects = batchTranslations.toMap()
         if (source == null || archiveEntries.isEmpty() || projects.isEmpty()) {
-            status = "Pilih arsip, baca indeks, lalu impor proyek JSON terlebih dahulu."
+            status = "Pilih arsip, baca indeks, lalu impor TXT massal terlebih dahulu."
             return
         }
         isExporting = true
