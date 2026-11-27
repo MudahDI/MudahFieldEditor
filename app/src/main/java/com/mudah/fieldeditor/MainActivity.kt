@@ -98,6 +98,77 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val openTranslationImport = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val analysis = fieldAnalysis
+        if (uri != null && analysis != null) {
+            try {
+                val input = contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("File JSON tidak dapat dibuka.")
+                val bytes = input.use { it.readBytes() }
+                if (bytes.size > 16 * 1024 * 1024) {
+                    throw IllegalArgumentException("Ukuran proyek terlalu besar (maksimal 16 MB).")
+                }
+                val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8))
+                val info = analysis.scriptInfo
+                    ?: throw IllegalStateException("Metadata field belum tersedia.")
+                val currentDialogs = info.dialogInfo?.dialogs
+                    ?: throw IllegalStateException("Tabel dialog belum tersedia.")
+                if (json.optString("format") != "MudahFieldEditor-translation-draft") {
+                    throw IllegalArgumentException("Format file bukan proyek terjemahan Mudah Field Editor.")
+                }
+                if (json.optInt("version", -1) != 1) {
+                    throw IllegalArgumentException("Versi proyek tidak didukung.")
+                }
+                if (json.optString("field") != info.fieldName) {
+                    throw IllegalArgumentException("Proyek ini untuk field ${json.optString("field")}, bukan ${info.fieldName}.")
+                }
+
+                val sourceDialogs = json.optJSONArray("dialogs")
+                    ?: throw IllegalArgumentException("Daftar dialog tidak ditemukan.")
+                if (sourceDialogs.length() != currentDialogs.size) {
+                    throw IllegalArgumentException("Jumlah dialog proyek tidak cocok dengan field saat ini.")
+                }
+                val currentByIndex = currentDialogs.associateBy { it.index }
+                val imported = linkedMapOf<Int, String>()
+                for (i in 0 until sourceDialogs.length()) {
+                    val item = sourceDialogs.optJSONObject(i)
+                        ?: throw IllegalArgumentException("Data dialog ke-${i + 1} tidak valid.")
+                    val index = item.optInt("index", -1)
+                    val current = currentByIndex[index]
+                        ?: throw IllegalArgumentException("Dialog ${index} tidak ditemukan pada field ini.")
+                    if (item.optInt("offset", -1) != current.offset) {
+                        throw IllegalArgumentException("Offset dialog ${index} tidak cocok. Impor dibatalkan.")
+                    }
+                    val expectedHex = current.rawBytes.joinToString("") {
+                        "%02X".format(it.toInt() and 0xFF)
+                    }
+                    if (!item.has("original_bytes_hex") ||
+                        !item.optString("original_bytes_hex").equals(expectedHex, ignoreCase = true)
+                    ) {
+                        throw IllegalArgumentException("Data asli dialog ${index} berbeda. Impor dibatalkan.")
+                    }
+                    if (imported.containsKey(index)) {
+                        throw IllegalArgumentException("Dialog ${index} tercantum lebih dari sekali.")
+                    }
+                    if (!item.has("translation") || item.isNull("translation")) {
+                        throw IllegalArgumentException("Draf dialog ${index} tidak memiliki teks terjemahan.")
+                    }
+                    imported[index] = item.getString("translation")
+                }
+                if (imported.size != currentDialogs.size) {
+                    throw IllegalArgumentException("Tidak semua dialog tercakup dalam proyek.")
+                }
+                dialogTranslations.clear()
+                dialogTranslations.putAll(imported)
+                status = "Impor berhasil: ${imported.size} draf dialog dipulihkan. Data game asli tidak diubah."
+            } catch (error: Exception) {
+                status = "Gagal mengimpor proyek: ${error.message ?: "kesalahan tidak diketahui"}"
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -415,6 +486,10 @@ class MainActivity : ComponentActivity() {
                                                     color = Color.Gray,
                                                     style = MaterialTheme.typography.labelSmall
                                                 )
+                                                Button(
+                                                    onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "*/*")) },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                                ) { Text("Impor Proyek Terjemahan (JSON)") }
                                                 Button(
                                                     onClick = { createTranslationExport.launch("${info.fieldName.ifBlank { "field" }}_translation.json") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
