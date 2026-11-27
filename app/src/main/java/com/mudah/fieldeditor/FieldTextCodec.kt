@@ -197,6 +197,7 @@ object FieldTextCodec {
                 '△' -> output.add(0xF7.toByte())
                 '☐' -> output.add(0xF8.toByte())
                 '✕' -> output.add(0xF9.toByte())
+                '⑬' -> output.add(0xE6.toByte())
                 else -> {
                     val index = normalChars.indexOf(c)
                     require(index >= 0) { "Karakter tidak didukung font FF7: '$c'." }
