@@ -17,6 +17,13 @@ object FieldBinaryWriter {
         val changedDialogs: Int
     )
 
+    private data class DialogGroup(
+        val pointer: Int,
+        val dialog: FieldDialog,
+        val oldBytes: ByteArray,
+        val newBytes: ByteArray
+    )
+
     fun build(analysis: FieldAnalysis, translations: Map<Int, String>): Result {
         val original = analysis.rawData
         val info = analysis.scriptInfo ?: error("Metadata skrip tidak tersedia.")
@@ -58,13 +65,6 @@ object FieldBinaryWriter {
         }
         val regionEnd = sectionDataStart + akaoBoundaryRelative
 
-        data class Group(
-            val pointer: Int,
-            val dialogs: List<FieldDialog>,
-            val oldBytes: ByteArray,
-            val newBytes: ByteArray
-        )
-
         val pointerValues = (0 until dialogInfo.count).map { index ->
             u16(original, tableStart + 2 + index * 2)
         }
@@ -94,7 +94,7 @@ object FieldBinaryWriter {
             } else {
                 FieldTextCodec.encode(translated)
             }
-            Group(pointer, entry.value, oldBytes, newBytes)
+            DialogGroup(pointer, dialog, oldBytes, newBytes)
         }
 
         val region = ByteArrayOutputStream()
@@ -107,7 +107,7 @@ object FieldBinaryWriter {
             region.write(original, oldCursor, oldStart - oldCursor)
             val newPointer = region.size()
             require(newPointer <= 0xFFFF) { "Offset dialog baru melebihi batas pointer 16-bit." }
-            newPointers[group.dialogs.single().index] = newPointer
+            newPointers[group.dialog.index] = newPointer
             region.write(group.newBytes)
             oldCursor = oldStart + group.oldBytes.size
             val nextStart = groups.getOrNull(groups.indexOf(group) + 1)?.let { tableStart + it.pointer }
