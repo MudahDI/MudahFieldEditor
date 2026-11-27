@@ -12,7 +12,7 @@ object FieldTextCodec {
         " !\"#$%&'()*+,-./01234" +
         "56789:;<=>?@ABCDEFGHI" +
         "JKLMNOPQRSTUVWXYZ[\\]^" +
-        "_\`abcdefghijklmnopqrs" +
+        "_`abcdefghijklmnopqrs" +
         "tuvwxyz{|}~ ÄÅÇÉÑÖÜáà" +
         "âäãåçéèêëíìîïñóòôöõúù" +
         "ûü♥°¢£↔→♪ßα  ´¨≠ÆØ∞±≤" +
