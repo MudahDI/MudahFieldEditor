@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
             entries = emptyList()
             selectedMember = null
             fieldAnalysis = null
+            selectedDialogIndex = null
+            dialogTranslations.clear()
             searchQuery = ""
             status = "File dipilih. Tekan Baca Arsip untuk memindai indeks."
             try {
@@ -423,7 +425,7 @@ class MainActivity : ComponentActivity() {
                                                     style = MaterialTheme.typography.bodySmall,
                                                     modifier = Modifier.padding(top = 6.dp)
                                                 )
-                                                dialogInfo.dialogs.take(30).forEach { dialog ->
+                                                dialogInfo.dialogs.forEach { dialog ->
                                                     Column(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
@@ -470,13 +472,6 @@ class MainActivity : ComponentActivity() {
                                                             label = { Text("Terjemahan Bahasa Indonesia") }
                                                         )
                                                     }
-                                                }
-                                                if (dialogInfo.dialogs.size > 30) {
-                                                    Text(
-                                                        "${dialogInfo.dialogs.size - 30} dialog lainnya tidak ditampilkan pada ringkasan ini.",
-                                                        color = Color.Gray,
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
                                                 }
                                                 dialogInfo.notes.forEach { note ->
                                                     Text(note, color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
@@ -637,6 +632,8 @@ class MainActivity : ComponentActivity() {
         val member = selectedMember ?: return
         isAnalyzing = true
         fieldAnalysis = null
+        selectedDialogIndex = null
+        dialogTranslations.clear()
         status = "Mendekompresi dan memeriksa struktur ${member.entry.name}..."
         Thread {
             try {
