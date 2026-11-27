@@ -376,6 +376,59 @@ class MainActivity : ComponentActivity() {
                                                     modifier = Modifier.padding(top = 4.dp)
                                                 )
                                             }
+                                            info.dialogInfo?.let { dialogInfo ->
+                                                Spacer(Modifier.height(12.dp))
+                                                Text(
+                                                    "DIALOG TERDETEKSI",
+                                                    color = Color(0xFF9CC7FF),
+                                                    style = MaterialTheme.typography.labelLarge
+                                                )
+                                                Text(
+                                                    "Jumlah dialog: ${dialogInfo.count} • Berhasil dibaca: ${dialogInfo.dialogs.size}",
+                                                    color = Color.White,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                                Text(
+                                                    "Basis pointer: 0x${dialogInfo.pointerBase.toString(16).uppercase()}",
+                                                    color = Color.Gray,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                                dialogInfo.dialogs.take(30).forEach { dialog ->
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(top = 6.dp)
+                                                            .background(Color(0xFF242B34), RoundedCornerShape(8.dp))
+                                                            .padding(9.dp)
+                                                    ) {
+                                                        Text(
+                                                            "Dialog ${dialog.index} • Offset 0x${dialog.offset.toString(16).uppercase()} • ${dialog.length} byte",
+                                                            color = Color(0xFFB8D6FF),
+                                                            style = MaterialTheme.typography.labelSmall
+                                                        )
+                                                        Text(
+                                                            dialog.preview.ifBlank { "(kosong / hanya kode kontrol)" },
+                                                            color = Color.White,
+                                                            style = MaterialTheme.typography.bodySmall
+                                                        )
+                                                        Text(
+                                                            dialog.rawHex,
+                                                            color = Color.Gray,
+                                                            style = MaterialTheme.typography.labelSmall
+                                                        )
+                                                    }
+                                                }
+                                                if (dialogInfo.dialogs.size > 30) {
+                                                    Text(
+                                                        "${dialogInfo.dialogs.size - 30} dialog lainnya tidak ditampilkan pada ringkasan ini.",
+                                                        color = Color.Gray,
+                                                        style = MaterialTheme.typography.labelSmall
+                                                    )
+                                                }
+                                                dialogInfo.notes.forEach { note ->
+                                                    Text(note, color = Color(0xFFFFD18A), style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
                                             Text(
                                                 "Tabel entry skrip sudah dihitung, tetapi opcode dan teks dialog belum diterjemahkan atau diubah.",
                                                 color = Color(0xFFFFD18A),
