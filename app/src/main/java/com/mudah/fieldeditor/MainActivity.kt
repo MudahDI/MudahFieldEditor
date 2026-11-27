@@ -661,7 +661,7 @@ class MainActivity : ComponentActivity() {
             }
             val start = match.range.last + 1
             val end = if (position + 1 < matches.size) matches[position + 1].range.first else source.length
-            val translated = source.substring(start, end).trimEnd('\\r', '\\n')
+            val translated = source.substring(start, end).trimEnd('\r', '\n')
             imported[dialogIndex] = translated
         }
         return imported
