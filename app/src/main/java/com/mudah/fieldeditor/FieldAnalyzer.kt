@@ -285,7 +285,7 @@ object FieldAnalyzer {
             .map { it.toLong() }
             .filter { it > stringOffset.toLong() && it < sectionLength.toLong() }
             .minOrNull()
-            ?.let { sectionOffset + it } ?: sectionEnd
+            ?.let { (sectionOffset.toLong() + it).toInt() } ?: sectionEnd
         val minimumStringTarget = tableStart + firstStringOffset
         val dialogs = mutableListOf<FieldDialog>()
 
