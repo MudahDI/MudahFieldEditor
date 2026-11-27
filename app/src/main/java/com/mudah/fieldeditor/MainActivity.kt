@@ -854,8 +854,8 @@ class MainActivity : ComponentActivity() {
                     val analysis = FieldAnalyzer.analyze(compressed)
                     val info = analysis.scriptInfo
                         ?: throw IllegalArgumentException("Metadata field '$fieldName' tidak terbaca.")
-                    require(info.fieldName.equals(fieldName, ignoreCase = true)) {
-                        "Nama field file '$fieldName' tidak cocok dengan isi member '${info.fieldName}'."
+                    require(info.fieldName.isNotBlank()) {
+                        "Metadata nama field di dalam member '$fieldName' kosong."
                     }
                     val currentDialogs = info.dialogInfo?.dialogs
                         ?: throw IllegalArgumentException("Tabel dialog '$fieldName' tidak tersedia.")
