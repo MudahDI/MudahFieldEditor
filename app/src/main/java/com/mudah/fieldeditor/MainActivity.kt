@@ -103,6 +103,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val createTextTranslationExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val analysis = fieldAnalysis
+        if (uri != null && analysis != null) {
+            try {
+                val text = buildTranslationTxt(analysis)
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(text.toByteArray(Charsets.UTF_8))
+                } ?: throw IllegalStateException("Tidak dapat membuat file TXT.")
+                status = "TXT field berhasil diekspor. Nama file sesuai nama field agar dapat diimpor massal."
+            } catch (error: Exception) {
+                status = "Gagal mengekspor TXT: ${error.message ?: "kesalahan tidak diketahui"}"
+            }
+        }
+    }
+
     private val createPatchedFieldExport = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
@@ -571,6 +588,10 @@ class MainActivity : ComponentActivity() {
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Ekspor Proyek Terjemahan (JSON)") }
                                                 Button(
+                                                    onClick = { createTextTranslationExport.launch("${info.fieldName.ifBlank { "field" }}.txt") },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                                ) { Text("Ekspor TXT untuk Terjemahan") }
+                                                Button(
                                                     onClick = { createPatchedFieldExport.launch("${info.fieldName.ifBlank { "field" }}_translated.bin") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Terapkan & Ekspor Field (.bin)") }
@@ -745,6 +766,20 @@ class MainActivity : ComponentActivity() {
             imported[dialogIndex] = translated
         }
         return imported
+    }
+
+    private fun buildTranslationTxt(analysis: FieldAnalysis): String {
+        val info = analysis.scriptInfo ?: throw IllegalStateException("Metadata field tidak tersedia.")
+        val dialogs = info.dialogInfo?.dialogs ?: throw IllegalStateException("Tabel dialog tidak tersedia.")
+        return buildString {
+            dialogs.forEach { dialog ->
+                append("---TEXT")
+                append((dialog.index - 1).toString().padStart(3, '0'))
+                append("---\\n")
+                append(dialogTranslations[dialog.index] ?: dialog.preview)
+                append("\\n")
+            }
+        }
     }
 
     private fun buildTranslationJson(analysis: FieldAnalysis): String {
