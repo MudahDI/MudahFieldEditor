@@ -295,7 +295,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 if (entries.isNotEmpty()) {
                                     Button(
-                                        onClick = { openBatchTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
+                                        onClick = { openBatchTranslationImport.launch(arrayOf("application/json", "text/json")) },
                                         enabled = !isExporting,
                                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                     ) { Text("Impor Banyak Proyek JSON") }
@@ -788,7 +788,7 @@ class MainActivity : ComponentActivity() {
                     if (bytes.size > 16 * 1024 * 1024) {
                         throw IllegalArgumentException("Proyek ke-${position + 1} melebihi batas 16 MB.")
                     }
-                    val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8).removePrefix("\\uFEFF"))
+                    val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF"))
                     require(json.optString("format") == "MudahFieldEditor-translation-draft") {
                         "File ke-${position + 1} bukan proyek terjemahan Mudah Field Editor."
                     }
