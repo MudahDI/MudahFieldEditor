@@ -316,8 +316,75 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             }
                                         }
+                                        analysis.scriptInfo?.let { info ->
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(
+                                                "FIELD SCRIPT & DIALOG",
+                                                color = Color(0xFF9CC7FF),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                letterSpacing = 1.sp
+                                            )
+                                            Text(
+                                                if (info.valid) "Header skrip terbaca" else "Header terbaca dengan catatan",
+                                                color = if (info.valid) Color(0xFF9FE0B2) else Color(0xFFFFD18A),
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                            val metadata = listOf(
+                                                "Nama field" to info.fieldName.ifBlank { "(tidak tersedia)" },
+                                                "Creator" to info.creator.ifBlank { "(tidak tersedia)" },
+                                                "Signature" to "0x${info.signature.toString(16).uppercase().padStart(4, '0')}",
+                                                "Jumlah entitas" to info.entityCount.toString(),
+                                                "Jumlah model" to info.modelCount.toString(),
+                                                "Offset string" to "0x${info.stringOffset.toString(16).uppercase()}",
+                                                "Skala field" to info.scale.toString(),
+                                                "Blok AKAO" to info.akaoCount.toString(),
+                                                "Entry skrip terisi" to "${info.populatedScriptSlots} / ${info.scriptSlots.size}",
+                                                "Ukuran header" to formatSize(info.headerSize.toLong())
+                                            )
+                                            metadata.forEach { (label, value) ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 4.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(label, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                                    Text(value, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                            if (info.entityNames.isNotEmpty()) {
+                                                Text(
+                                                    "NAMA ENTITAS",
+                                                    color = Color(0xFF9CC7FF),
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    modifier = Modifier.padding(top = 10.dp)
+                                                )
+                                                info.entityNames.forEachIndexed { index, name ->
+                                                    Text(
+                                                        "${index + 1}. $name",
+                                                        color = Color.White,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        modifier = Modifier.padding(top = 3.dp)
+                                                    )
+                                                }
+                                            }
+                                            info.notes.forEach { note ->
+                                                Text(
+                                                    note,
+                                                    color = Color(0xFFFF9B9B),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
+                                            Text(
+                                                "Tabel entry skrip sudah dihitung, tetapi opcode dan teks dialog belum diterjemahkan atau diubah.",
+                                                color = Color(0xFFFFD18A),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(top = 8.dp)
+                                            )
+                                        }
                                         Text(
-                                            "Validasi saat ini mencakup header, pointer, ukuran, dan batas section. Isi skrip/dialog belum diuraikan.",
+                                            "Validasi saat ini mencakup header, pointer, ukuran, dan batas section. Parsing metadata Section 1 bersifat awal dan perlu diuji pada beberapa field.",
                                             color = Color(0xFFFFD18A),
                                             style = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.padding(top = 10.dp)
