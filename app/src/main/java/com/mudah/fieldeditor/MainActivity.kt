@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private var fieldAnalysis by mutableStateOf<FieldAnalysis?>(null)
     private var searchQuery by mutableStateOf("")
     private var status by mutableStateOf("Pilih flevel.lgp untuk mulai membaca.")
+    private var translationImportStatus by mutableStateOf("")
     private var isReading by mutableStateOf(false)
     private var isExporting by mutableStateOf(false)
     private var isAnalyzing by mutableStateOf(false)
@@ -119,7 +120,8 @@ class MainActivity : ComponentActivity() {
                 if (!importedText.trimStart().startsWith("{")) {
                     val imported = parseTextTranslationImport(importedText, currentDialogs)
                     dialogTranslations.putAll(imported)
-                    status = "Impor TXT berhasil: ${imported.size} draf dialog diterapkan. Data game asli tidak diubah."
+                    translationImportStatus = "Impor TXT berhasil: ${imported.size} draf dialog diterapkan. Pilih dialog untuk melihat isinya."
+                    status = translationImportStatus
                 } else {
                     val json = org.json.JSONObject(importedText)
                     if (json.optString("format") != "MudahFieldEditor-translation-draft") {
@@ -169,10 +171,12 @@ class MainActivity : ComponentActivity() {
                 }
                     dialogTranslations.clear()
                     dialogTranslations.putAll(imported)
-                    status = "Impor JSON berhasil: ${imported.size} draf dialog dipulihkan. Data game asli tidak diubah."
+                    translationImportStatus = "Impor JSON berhasil: ${imported.size} draf dialog dipulihkan. Pilih dialog untuk melihat isinya."
+                    status = translationImportStatus
                 }
             } catch (error: Exception) {
-                status = "Gagal mengimpor proyek: ${error.message ?: "kesalahan tidak diketahui"}"
+                translationImportStatus = "Gagal mengimpor: ${error.message ?: "kesalahan tidak diketahui"}"
+                status = translationImportStatus
             }
         }
     }
@@ -498,6 +502,14 @@ class MainActivity : ComponentActivity() {
                                                     onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Impor Translasi (JSON / TXT)") }
+                                                if (translationImportStatus.isNotBlank()) {
+                                                    Text(
+                                                        translationImportStatus,
+                                                        color = if (translationImportStatus.startsWith("Gagal")) Color(0xFFFF9B9B) else Color(0xFF9FE0B2),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        modifier = Modifier.padding(top = 6.dp)
+                                                    )
+                                                }
                                                 Button(
                                                     onClick = { createTranslationExport.launch("${info.fieldName.ifBlank { "field" }}_translation.json") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
