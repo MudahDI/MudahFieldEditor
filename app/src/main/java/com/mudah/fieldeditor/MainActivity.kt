@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,8 @@ class MainActivity : ComponentActivity() {
     private var isReading by mutableStateOf(false)
     private var isExporting by mutableStateOf(false)
     private var isAnalyzing by mutableStateOf(false)
+    private var selectedDialogIndex by mutableStateOf<Int?>(null)
+    private val dialogTranslations = mutableStateMapOf<Int, String>()
 
     private val openLgp = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -73,6 +76,23 @@ class MainActivity : ComponentActivity() {
         val member = selectedMember
         if (uri != null && source != null && member != null) {
             exportMember(source, uri, member)
+        }
+    }
+
+    private val createTranslationExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val analysis = fieldAnalysis
+        if (uri != null && analysis != null) {
+            try {
+                val json = buildTranslationJson(analysis)
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(json.toByteArray(Charsets.UTF_8))
+                } ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+                status = "Proyek terjemahan berhasil diekspor. File asli tidak diubah."
+            } catch (error: Exception) {
+                status = "Gagal mengekspor proyek: ${error.message ?: "kesalahan tidak diketahui"}"
+            }
         }
     }
 
@@ -393,6 +413,16 @@ class MainActivity : ComponentActivity() {
                                                     color = Color.Gray,
                                                     style = MaterialTheme.typography.labelSmall
                                                 )
+                                                Button(
+                                                    onClick = { createTranslationExport.launch("${info.fieldName.ifBlank { "field" }}_translation.json") },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                                ) { Text("Ekspor Proyek Terjemahan (JSON)") }
+                                                Text(
+                                                    "Pilih dialog untuk mengisi draf terjemahan. Tahap ini menyimpan proyek terjemahan terpisah; belum mengubah data game.",
+                                                    color = Color(0xFFFFD18A),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.padding(top = 6.dp)
+                                                )
                                                 dialogInfo.dialogs.take(30).forEach { dialog ->
                                                     Column(
                                                         modifier = Modifier
@@ -415,6 +445,29 @@ class MainActivity : ComponentActivity() {
                                                             dialog.rawHex,
                                                             color = Color.Gray,
                                                             style = MaterialTheme.typography.labelSmall
+                                                        )
+                                                    }
+                                                    Button(
+                                                        onClick = { selectedDialogIndex = dialog.index },
+                                                        modifier = Modifier.fillMaxWidth().padding(top = 3.dp)
+                                                    ) { Text(if (selectedDialogIndex == dialog.index) "Dialog ${dialog.index} dipilih" else "Terjemahkan dialog ${dialog.index}") }
+                                                }
+                                                selectedDialogIndex?.let { selectedIndex ->
+                                                    val selectedDialog = dialogInfo.dialogs.firstOrNull { it.index == selectedIndex }
+                                                    if (selectedDialog != null) {
+                                                        Text(
+                                                            "DRAF TERJEMAHAN • DIALOG ${selectedDialog.index}",
+                                                            color = Color(0xFF9CC7FF),
+                                                            style = MaterialTheme.typography.labelLarge,
+                                                            modifier = Modifier.padding(top = 10.dp)
+                                                        )
+                                                        Text("Teks asli: ${selectedDialog.preview}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                                                        OutlinedTextField(
+                                                            value = dialogTranslations[selectedIndex] ?: "",
+                                                            onValueChange = { dialogTranslations[selectedIndex] = it },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            minLines = 3,
+                                                            label = { Text("Terjemahan Bahasa Indonesia") }
                                                         )
                                                     }
                                                 }
@@ -504,6 +557,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun buildTranslationJson(analysis: FieldAnalysis): String {
+        val info = analysis.scriptInfo ?: throw IllegalStateException("Metadata field tidak tersedia.")
+        val dialogs = info.dialogInfo?.dialogs ?: throw IllegalStateException("Tabel dialog tidak tersedia.")
+        val root = org.json.JSONObject()
+        root.put("format", "MudahFieldEditor-translation-draft")
+        root.put("version", 1)
+        root.put("field", info.fieldName)
+        root.put("note", "Draf terjemahan saja; belum diterapkan ke data game.")
+        val array = org.json.JSONArray()
+        dialogs.forEach { dialog ->
+            val item = org.json.JSONObject()
+            item.put("index", dialog.index)
+            item.put("offset", dialog.offset)
+            item.put("original", dialog.preview)
+            item.put("translation", dialogTranslations[dialog.index] ?: "")
+            item.put("original_bytes_hex", dialog.rawBytes.joinToString("") { "%02X".format(it.toInt() and 0xFF) })
+            array.put(item)
+        }
+        root.put("dialogs", array)
+        return root.toString(2)
     }
 
     private fun readSelectedArchive() {
