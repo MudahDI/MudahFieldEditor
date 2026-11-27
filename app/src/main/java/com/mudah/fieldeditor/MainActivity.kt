@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     private var isAnalyzing by mutableStateOf(false)
     private var selectedDialogIndex by mutableStateOf<Int?>(null)
     private val dialogTranslations = mutableStateMapOf<Int, String>()
+    private val batchTranslations = mutableStateMapOf<String, Map<Int, String>>()
 
     private val openLgp = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -116,6 +117,18 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         if (uri != null) exportTranslatedArchive(uri)
+    }
+
+    private val createBatchArchiveExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri != null) exportTranslatedArchiveBatch(uri)
+    }
+
+    private val openBatchTranslationImport = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) importBatchTranslationProjects(uris)
     }
 
     private val openTranslationImport = registerForActivityResult(
@@ -279,6 +292,23 @@ class MainActivity : ComponentActivity() {
                                         .padding(top = 6.dp)
                                 ) {
                                     Text(if (isReading) "Sedang membaca..." else "Baca Arsip")
+                                }
+                                if (entries.isNotEmpty()) {
+                                    Button(
+                                        onClick = { openBatchTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
+                                        enabled = !isExporting,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    ) { Text("Impor Banyak Proyek JSON") }
+                                    Text(
+                                        "Proyek massal dimuat: ${batchTranslations.size} field",
+                                        color = Color(0xFF9FE0B2),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Button(
+                                        onClick = { createBatchArchiveExport.launch("flevel_translated.lgp") },
+                                        enabled = batchTranslations.isNotEmpty() && !isExporting,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                    ) { Text("Bangun LGP dari Proyek Massal (${batchTranslations.size})") }
                                 }
                                 Text(
                                     status,
@@ -737,6 +767,206 @@ class MainActivity : ComponentActivity() {
         }
         root.put("dialogs", array)
         return root.toString(2)
+    }
+
+    private fun importBatchTranslationProjects(uris: List<Uri>) {
+        val source = selectedFile
+        val archiveEntries = entries.toList()
+        if (source == null || archiveEntries.isEmpty()) {
+            status = "Pilih dan baca flevel.lgp terlebih dahulu."
+            return
+        }
+        isAnalyzing = true
+        status = "Memvalidasi ${uris.size} proyek terjemahan terhadap arsip..."
+        Thread {
+            try {
+                val staged = linkedMapOf<String, Map<Int, String>>()
+                val knownNames = archiveEntries.associateBy { it.name.lowercase() }
+                uris.forEachIndexed { position, uri ->
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("Proyek ke-${position + 1} tidak dapat dibuka.")
+                    if (bytes.size > 16 * 1024 * 1024) {
+                        throw IllegalArgumentException("Proyek ke-${position + 1} melebihi batas 16 MB.")
+                    }
+                    val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8).removePrefix("\\uFEFF"))
+                    require(json.optString("format") == "MudahFieldEditor-translation-draft") {
+                        "File ke-${position + 1} bukan proyek terjemahan Mudah Field Editor."
+                    }
+                    require(json.optInt("version", -1) == 1) {
+                        "Versi proyek ke-${position + 1} tidak didukung."
+                    }
+                    val fieldName = json.optString("field").trim()
+                    require(fieldName.isNotEmpty()) { "Nama field pada proyek ke-${position + 1} kosong." }
+                    val entry = knownNames[fieldName.lowercase()]
+                        ?: throw IllegalArgumentException("Field '$fieldName' tidak ditemukan di flevel.lgp.")
+                    require(!staged.containsKey(entry.name)) {
+                        "Proyek untuk field '$fieldName' dipilih lebih dari sekali."
+                    }
+                    val member = contentResolver.openInputStream(source)?.use {
+                        LgpReader.readMember(it, entry, getArchiveLength(source))
+                    } ?: throw IllegalStateException("Tidak dapat membaca member '$fieldName'.")
+                    require(member.size <= 64L * 1024L * 1024L) {
+                        "Field '$fieldName' terlalu besar untuk diproses."
+                    }
+                    val compressed = contentResolver.openInputStream(source)?.use { input ->
+                        skipFully(input, member.dataOffset)
+                        val data = ByteArray(member.size.toInt())
+                        var offset = 0
+                        while (offset < data.size) {
+                            val read = input.read(data, offset, data.size - offset)
+                            if (read < 0) throw IllegalArgumentException("Data field '$fieldName' terpotong.")
+                            offset += read
+                        }
+                        data
+                    } ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+                    val analysis = FieldAnalyzer.analyze(compressed)
+                    val info = analysis.scriptInfo
+                        ?: throw IllegalArgumentException("Metadata field '$fieldName' tidak terbaca.")
+                    require(info.fieldName.equals(fieldName, ignoreCase = true)) {
+                        "Nama field proyek '$fieldName' tidak cocok dengan isi member '${info.fieldName}'."
+                    }
+                    val currentDialogs = info.dialogInfo?.dialogs
+                        ?: throw IllegalArgumentException("Tabel dialog '$fieldName' tidak tersedia.")
+                    val sourceDialogs = json.optJSONArray("dialogs")
+                        ?: throw IllegalArgumentException("Daftar dialog '$fieldName' tidak ditemukan.")
+                    require(sourceDialogs.length() == currentDialogs.size) {
+                        "Jumlah dialog proyek '$fieldName' tidak cocok dengan arsip."
+                    }
+                    val currentByIndex = currentDialogs.associateBy { it.index }
+                    val imported = linkedMapOf<Int, String>()
+                    for (i in 0 until sourceDialogs.length()) {
+                        val item = sourceDialogs.optJSONObject(i)
+                            ?: throw IllegalArgumentException("Dialog ke-${i + 1} pada '$fieldName' tidak valid.")
+                        val index = item.optInt("index", -1)
+                        val current = currentByIndex[index]
+                            ?: throw IllegalArgumentException("Dialog $index tidak ditemukan pada '$fieldName'.")
+                        require(item.optInt("offset", -1) == current.offset) {
+                            "Offset dialog $index pada '$fieldName' tidak cocok."
+                        }
+                        val expectedHex = current.rawBytes.joinToString("") {
+                            "%02X".format(it.toInt() and 0xFF)
+                        }
+                        require(item.has("original_bytes_hex") &&
+                            item.optString("original_bytes_hex").equals(expectedHex, ignoreCase = true)
+                        ) { "Data asli dialog $index pada '$fieldName' berbeda. Impor dibatalkan." }
+                        require(!imported.containsKey(index)) {
+                            "Dialog $index pada '$fieldName' tercantum lebih dari sekali."
+                        }
+                        require(item.has("translation") && !item.isNull("translation")) {
+                            "Dialog $index pada '$fieldName' tidak memiliki teks terjemahan."
+                        }
+                        imported[index] = item.getString("translation")
+                    }
+                    require(imported.size == currentDialogs.size) {
+                        "Tidak semua dialog pada proyek '$fieldName' tercakup."
+                    }
+                    staged[entry.name] = imported
+                }
+                runOnUiThread {
+                    batchTranslations.putAll(staged)
+                    isAnalyzing = false
+                    status = "Impor massal berhasil: ${staged.size} proyek field tervalidasi. Arsip asli tidak diubah."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    isAnalyzing = false
+                    status = "Gagal impor massal: ${error.message ?: error.javaClass.simpleName}. Tidak ada proyek baru yang diterapkan."
+                }
+            }
+        }.start()
+    }
+
+    private fun exportTranslatedArchiveBatch(destination: Uri) {
+        val source = selectedFile
+        val archiveEntries = entries.toList()
+        val projects = batchTranslations.toMap()
+        if (source == null || archiveEntries.isEmpty() || projects.isEmpty()) {
+            status = "Pilih arsip, baca indeks, lalu impor proyek JSON terlebih dahulu."
+            return
+        }
+        isExporting = true
+        status = "Membangun dan memvalidasi ${projects.size} field dalam flevel.lgp..."
+        Thread {
+            var temporary: java.io.File? = null
+            try {
+                val replacements = linkedMapOf<String, ByteArray>()
+                var changedDialogs = 0
+                projects.forEach { (entryName, translations) ->
+                    val entry = archiveEntries.singleOrNull { it.name == entryName }
+                        ?: throw IllegalArgumentException("Field '$entryName' tidak lagi ditemukan di arsip.")
+                    val member = contentResolver.openInputStream(source)?.use {
+                        LgpReader.readMember(it, entry, getArchiveLength(source))
+                    } ?: throw IllegalStateException("Tidak dapat membaca field '$entryName'.")
+                    require(member.size <= 64L * 1024L * 1024L) {
+                        "Field '$entryName' terlalu besar untuk diproses."
+                    }
+                    val compressed = contentResolver.openInputStream(source)?.use { input ->
+                        skipFully(input, member.dataOffset)
+                        val data = ByteArray(member.size.toInt())
+                        var offset = 0
+                        while (offset < data.size) {
+                            val read = input.read(data, offset, data.size - offset)
+                            if (read < 0) throw IllegalArgumentException("Data field '$entryName' terpotong.")
+                            offset += read
+                        }
+                        data
+                    } ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+                    val analysis = FieldAnalyzer.analyze(compressed)
+                    require(analysis.scriptInfo?.fieldName.equals(entryName, ignoreCase = true)) {
+                        "Isi field '$entryName' berubah sejak proyek diimpor."
+                    }
+                    val result = FieldBinaryWriter.build(analysis, translations)
+                    replacements[entryName] = result.compressedBytes
+                    changedDialogs += result.changedDialogs
+                }
+                val archive = LgpArchive(archiveEntries.size, archiveEntries)
+                temporary = java.io.File.createTempFile("field-editor-batch-", ".tmp", cacheDir)
+                val archiveResult = temporary.outputStream().use { stream ->
+                    LgpArchiveWriter.build(
+                        openSource = {
+                            contentResolver.openInputStream(source)
+                                ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+                        },
+                        archive = archive,
+                        replacements = replacements,
+                        output = stream
+                    )
+                }
+                LgpArchiveWriter.validate(
+                    openSource = {
+                        contentResolver.openInputStream(source)
+                            ?: throw IllegalStateException("Tidak dapat membuka arsip sumber untuk validasi.")
+                    },
+                    archive = archive,
+                    replacements = replacements,
+                    outputFile = temporary
+                )
+                require(temporary.length() == archiveResult.outputBytes) {
+                    "Ukuran file sementara tidak cocok dengan hasil rekonstruksi."
+                }
+                contentResolver.openOutputStream(destination)?.use { output ->
+                    temporary.inputStream().use { it.copyTo(output) }
+                } ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+                runOnUiThread {
+                    isExporting = false
+                    status = "LGP massal lolos validasi: ${archiveResult.entryCount} entri diperiksa, ${replacements.size} field diganti, $changedDialogs dialog berubah, ${formatSize(archiveResult.outputBytes)}. Arsip asli tidak diubah."
+                }
+            } catch (error: Exception) {
+                try { DocumentsContract.deleteDocument(contentResolver, destination) } catch (_: Exception) {}
+                runOnUiThread {
+                    isExporting = false
+                    val detail = error.message ?: error.javaClass.simpleName
+                    status = "Gagal membangun LGP massal: $detail. Arsip asli tetap aman."
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Rekonstruksi massal gagal")
+                        .setMessage("$detail\\n\\nFile hasil tidak digunakan dan dihapus jika penyedia dokumen mengizinkan. Arsip asli tidak diubah.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            } finally {
+                temporary?.delete()
+            }
+        }.start()
     }
 
     private fun readSelectedArchive() {
