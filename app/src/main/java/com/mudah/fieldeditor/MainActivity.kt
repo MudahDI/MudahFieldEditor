@@ -536,6 +536,12 @@ class MainActivity : ComponentActivity() {
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Terapkan & Ekspor Field (.bin)") }
                                                 Text(
+                                                    "Ekspor ini menghasilkan satu member field terkompresi (.bin), belum mengganti entri di flevel.lgp.",
+                                                    color = Color(0xFFFFD18A),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.padding(top = 5.dp)
+                                                )
+                                                Text(
                                                     "Pilih dialog untuk mengisi draf terjemahan. Tahap ini menyimpan proyek terjemahan terpisah; belum mengubah data game.",
                                                     color = Color(0xFFFFD18A),
                                                     style = MaterialTheme.typography.bodySmall,
