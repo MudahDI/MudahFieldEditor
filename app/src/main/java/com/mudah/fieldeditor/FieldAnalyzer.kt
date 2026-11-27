@@ -19,7 +19,8 @@ data class FieldDialog(
     val offset: Int,
     val length: Int,
     val preview: String,
-    val rawHex: String
+    val rawHex: String,
+    val rawBytes: ByteArray
 )
 
 data class FieldDialogInfo(
@@ -53,7 +54,8 @@ data class FieldAnalysis(
     val decompressedSize: Int,
     val sectionCount: Int,
     val sections: List<FieldSection>,
-    val scriptInfo: FieldScriptInfo?
+    val scriptInfo: FieldScriptInfo?,
+    val rawData: ByteArray
 )
 
 object FieldAnalyzer {
@@ -149,7 +151,8 @@ object FieldAnalyzer {
             decompressedSize = raw.size,
             sectionCount = count.toInt(),
             sections = sections.sortedBy { it.index },
-            scriptInfo = scriptInfo
+            scriptInfo = scriptInfo,
+            rawData = raw.copyOf()
         )
     }
 
@@ -309,7 +312,8 @@ object FieldAnalyzer {
                 length = bytes.size + 1,
                 preview = decodeDialogPreview(bytes),
                 rawHex = bytes.take(48).joinToString(" ") { "%02X".format(it.toInt() and 0xFF) } +
-                    if (bytes.size > 48) " …" else ""
+                    if (bytes.size > 48) " …" else "",
+                rawBytes = raw.copyOfRange(target, end + 1)
             )
         }
         return FieldDialogInfo(
