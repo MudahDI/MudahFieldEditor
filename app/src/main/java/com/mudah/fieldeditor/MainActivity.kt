@@ -1,6 +1,9 @@
 package com.mudah.fieldeditor
 
 import android.net.Uri
+import android.app.AlertDialog
+import android.provider.DocumentsContract
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -874,9 +877,25 @@ class MainActivity : ComponentActivity() {
                     status = "Field berhasil dibuat dan divalidasi. ${result.changedDialogs} dialog berubah; ukuran data dialog ${result.oldDialogBytes} → ${result.newDialogBytes} byte. File hasil masih berupa member field terkompresi, belum arsip LGP lengkap."
                 }
             } catch (error: Exception) {
+                try {
+                    DocumentsContract.deleteDocument(contentResolver, destination)
+                } catch (_: Exception) {
+                    // Beberapa penyedia dokumen tidak mendukung penghapusan; tampilkan error utama.
+                }
                 runOnUiThread {
                     isExporting = false
-                    status = "Gagal menerapkan terjemahan: ${error.message ?: "kesalahan tidak diketahui"}. File game asli tetap aman."
+                    val detail = error.message ?: error.javaClass.simpleName
+                    status = "Gagal menerapkan terjemahan: $detail. File game asli tetap aman."
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Ekspor field gagal. Lihat detail kesalahan.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Ekspor field gagal")
+                        .setMessage("$detail\n\nFile hasil kosong telah dihapus jika penyedia dokumen mengizinkan. File game asli tidak diubah.")
+                        .setPositiveButton("OK", null)
+                        .show()
                 }
             }
         }.start()
