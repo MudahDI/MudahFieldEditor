@@ -575,7 +575,7 @@ class MainActivity : ComponentActivity() {
                                                 Button(
                                                     onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                                                ) { Text("Impor Translasi (JSON / TXT)") }
+                                                ) { Text("Impor TXT / Proyek Terjemahan") }
                                                 if (translationImportStatus.isNotBlank()) {
                                                     Text(
                                                         translationImportStatus,
@@ -916,8 +916,8 @@ class MainActivity : ComponentActivity() {
                         data
                     } ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
                     val analysis = FieldAnalyzer.analyze(compressed)
-                    require(analysis.scriptInfo?.fieldName.equals(entryName, ignoreCase = true)) {
-                        "Isi field '$entryName' berubah sejak proyek diimpor."
+                    require(analysis.scriptInfo != null) {
+                        "Metadata field '$entryName' tidak terbaca dari arsip sumber."
                     }
                     val result = FieldBinaryWriter.build(analysis, translations)
                     replacements[entryName] = result.compressedBytes
