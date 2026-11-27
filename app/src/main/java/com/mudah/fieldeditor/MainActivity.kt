@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 
 class MainActivity : ComponentActivity() {
     private var selectedFile by mutableStateOf<Uri?>(null)
@@ -50,9 +49,6 @@ class MainActivity : ComponentActivity() {
     private var isReading by mutableStateOf(false)
     private var isExporting by mutableStateOf(false)
     private var isAnalyzing by mutableStateOf(false)
-    private var isAutoTranslating by mutableStateOf(false)
-    private var geminiApiKey by mutableStateOf("")
-    private var autoTranslateProgress by mutableStateOf("")
     private var selectedDialogIndex by mutableStateOf<Int?>(null)
     private val dialogTranslations = mutableStateMapOf<Int, String>()
     private val batchTranslations = mutableStateMapOf<String, Map<Int, String>>()
@@ -576,35 +572,6 @@ class MainActivity : ComponentActivity() {
                                                     color = Color.Gray,
                                                     style = MaterialTheme.typography.labelSmall
                                                 )
-
-                                                OutlinedTextField(
-                                                    value = geminiApiKey,
-                                                    onValueChange = { geminiApiKey = it },
-                                                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                                    singleLine = true,
-                                                    visualTransformation = PasswordVisualTransformation(),
-                                                    label = { Text("Gemini API key (hanya sesi ini)") }
-                                                )
-                                                Text(
-                                                    "Model Economy: ${GeminiTranslator.MODEL}. Kunci API tidak disimpan oleh aplikasi. Teks dialog dikirim ke layanan Google untuk diterjemahkan.",
-                                                    color = Color.Gray,
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                                Button(
-                                                    onClick = { autoTranslateCurrentField(analysis) },
-                                                    enabled = !isAutoTranslating && !isExporting && geminiApiKey.isNotBlank() && dialogInfo.valid,
-                                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                                                ) {
-                                                    Text(if (isAutoTranslating) "Menerjemahkan..." else "Auto Translate Field (Gemini)")
-                                                }
-                                                if (autoTranslateProgress.isNotBlank()) {
-                                                    Text(
-                                                        autoTranslateProgress,
-                                                        color = Color(0xFF9FE0B2),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        modifier = Modifier.padding(top = 4.dp)
-                                                    )
-                                                }
                                                 Button(
                                                     onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
@@ -836,57 +803,6 @@ class MainActivity : ComponentActivity() {
         }
         root.put("dialogs", array)
         return root.toString(2)
-    }
-
-    private fun autoTranslateCurrentField(analysis: FieldAnalysis) {
-        val apiKey = geminiApiKey.trim()
-        if (apiKey.isBlank()) {
-            status = "Masukkan Gemini API key terlebih dahulu."
-            return
-        }
-        val dialogs = analysis.scriptInfo?.dialogInfo?.dialogs
-            ?: run {
-                status = "Tabel dialog tidak tersedia."
-                return
-            }
-        val existing = dialogTranslations.toMap()
-        val pending = dialogs.filter { dialog ->
-            dialog.preview.isNotBlank() && existing[dialog.index].isNullOrBlank()
-        }
-        if (pending.isEmpty()) {
-            status = "Tidak ada dialog baru untuk diterjemahkan. Draf yang sudah terisi dipertahankan."
-            return
-        }
-
-        isAutoTranslating = true
-        autoTranslateProgress = "Menyiapkan ${pending.size} dialog..."
-        status = "Auto Translate berjalan. Jangan tutup aplikasi sampai proses selesai."
-        Thread {
-            try {
-                val translated = GeminiTranslator.translateDialogs(
-                    context = this,
-                    apiKey = apiKey,
-                    dialogs = pending.map { GeminiDialogInput(it.index, it.preview) },
-                    onProgress = { done, total ->
-                        runOnUiThread {
-                            autoTranslateProgress = "Progres: $done / $total dialog"
-                        }
-                    }
-                )
-                runOnUiThread {
-                    dialogTranslations.putAll(translated)
-                    isAutoTranslating = false
-                    autoTranslateProgress = "Selesai: ${translated.size} dialog diterjemahkan atau dipulihkan dari cache."
-                    status = "Auto Translate selesai. Periksa hasilnya sebelum mengekspor field atau LGP."
-                }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    isAutoTranslating = false
-                    status = "Auto Translate gagal: ${error.message ?: error.javaClass.simpleName}"
-                    autoTranslateProgress = "Proses berhenti dengan aman. Terjemahan yang sudah tersimpan di cache dapat digunakan saat dicoba lagi."
-                }
-            }
-        }.start()
     }
 
     private fun importBatchTranslationProjects(uris: List<Uri>) {
