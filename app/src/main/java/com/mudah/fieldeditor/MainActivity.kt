@@ -777,37 +777,33 @@ class MainActivity : ComponentActivity() {
             return
         }
         isAnalyzing = true
-        status = "Memvalidasi ${uris.size} proyek terjemahan terhadap arsip..."
+        status = "Memvalidasi ${uris.size} file TXT terhadap flevel.lgp..."
         Thread {
             try {
                 val staged = linkedMapOf<String, Map<Int, String>>()
-                val knownNames = archiveEntries.associateBy { it.name.lowercase() }
+                val knownNames = archiveEntries.groupBy { it.name.lowercase() }
                 uris.forEachIndexed { position, uri ->
+                    val fileName = queryDisplayName(uri)
+                    val fieldName = fileName.substringBeforeLast('.', fileName).trim()
+                    require(fieldName.isNotEmpty() && fieldName != fileName) {
+                        "Nama file ke-${position + 1} harus memakai nama field, contoh ancnt1.txt."
+                    }
+                    val matching = knownNames[fieldName.lowercase()]
+                        ?: throw IllegalArgumentException("Field '$fieldName' dari file '$fileName' tidak ditemukan di flevel.lgp.")
+                    require(matching.size == 1) { "Nama field '$fieldName' ambigu di indeks arsip." }
+                    val entry = matching.single()
+                    require(!staged.containsKey(entry.name)) { "File TXT untuk field '$fieldName' dipilih lebih dari sekali." }
                     val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Proyek ke-${position + 1} tidak dapat dibuka.")
-                    if (bytes.size > 16 * 1024 * 1024) {
-                        throw IllegalArgumentException("Proyek ke-${position + 1} melebihi batas 16 MB.")
-                    }
-                    val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF"))
-                    require(json.optString("format") == "MudahFieldEditor-translation-draft") {
-                        "File ke-${position + 1} bukan proyek terjemahan Mudah Field Editor."
-                    }
-                    require(json.optInt("version", -1) == 1) {
-                        "Versi proyek ke-${position + 1} tidak didukung."
-                    }
-                    val fieldName = json.optString("field").trim()
-                    require(fieldName.isNotEmpty()) { "Nama field pada proyek ke-${position + 1} kosong." }
-                    val entry = knownNames[fieldName.lowercase()]
-                        ?: throw IllegalArgumentException("Field '$fieldName' tidak ditemukan di flevel.lgp.")
-                    require(!staged.containsKey(entry.name)) {
-                        "Proyek untuk field '$fieldName' dipilih lebih dari sekali."
+                        ?: throw IllegalStateException("File '$fileName' tidak dapat dibuka.")
+                    require(bytes.size <= 16 * 1024 * 1024) { "File '$fileName' melebihi batas 16 MB." }
+                    val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+                    require(!text.trimStart().startsWith("{")) {
+                        "File '$fileName' terdeteksi JSON. Pilih file TXT hasil terjemahan."
                     }
                     val member = contentResolver.openInputStream(source)?.use {
                         LgpReader.readMember(it, entry, getArchiveLength(source))
                     } ?: throw IllegalStateException("Tidak dapat membaca member '$fieldName'.")
-                    require(member.size <= 64L * 1024L * 1024L) {
-                        "Field '$fieldName' terlalu besar untuk diproses."
-                    }
+                    require(member.size <= 64L * 1024L * 1024L) { "Field '$fieldName' terlalu besar untuk diproses." }
                     val compressed = contentResolver.openInputStream(source)?.use { input ->
                         skipFully(input, member.dataOffset)
                         val data = ByteArray(member.size.toInt())
@@ -823,54 +819,26 @@ class MainActivity : ComponentActivity() {
                     val info = analysis.scriptInfo
                         ?: throw IllegalArgumentException("Metadata field '$fieldName' tidak terbaca.")
                     require(info.fieldName.equals(fieldName, ignoreCase = true)) {
-                        "Nama field proyek '$fieldName' tidak cocok dengan isi member '${info.fieldName}'."
+                        "Nama field file '$fieldName' tidak cocok dengan isi member '${info.fieldName}'."
                     }
                     val currentDialogs = info.dialogInfo?.dialogs
                         ?: throw IllegalArgumentException("Tabel dialog '$fieldName' tidak tersedia.")
-                    val sourceDialogs = json.optJSONArray("dialogs")
-                        ?: throw IllegalArgumentException("Daftar dialog '$fieldName' tidak ditemukan.")
-                    require(sourceDialogs.length() == currentDialogs.size) {
-                        "Jumlah dialog proyek '$fieldName' tidak cocok dengan arsip."
-                    }
-                    val currentByIndex = currentDialogs.associateBy { it.index }
-                    val imported = linkedMapOf<Int, String>()
-                    for (i in 0 until sourceDialogs.length()) {
-                        val item = sourceDialogs.optJSONObject(i)
-                            ?: throw IllegalArgumentException("Dialog ke-${i + 1} pada '$fieldName' tidak valid.")
-                        val index = item.optInt("index", -1)
-                        val current = currentByIndex[index]
-                            ?: throw IllegalArgumentException("Dialog $index tidak ditemukan pada '$fieldName'.")
-                        require(item.optInt("offset", -1) == current.offset) {
-                            "Offset dialog $index pada '$fieldName' tidak cocok."
-                        }
-                        val expectedHex = current.rawBytes.joinToString("") {
-                            "%02X".format(it.toInt() and 0xFF)
-                        }
-                        require(item.has("original_bytes_hex") &&
-                            item.optString("original_bytes_hex").equals(expectedHex, ignoreCase = true)
-                        ) { "Data asli dialog $index pada '$fieldName' berbeda. Impor dibatalkan." }
-                        require(!imported.containsKey(index)) {
-                            "Dialog $index pada '$fieldName' tercantum lebih dari sekali."
-                        }
-                        require(item.has("translation") && !item.isNull("translation")) {
-                            "Dialog $index pada '$fieldName' tidak memiliki teks terjemahan."
-                        }
-                        imported[index] = item.getString("translation")
-                    }
-                    require(imported.size == currentDialogs.size) {
-                        "Tidak semua dialog pada proyek '$fieldName' tercakup."
+                    val imported = parseTextTranslationImport(text, currentDialogs)
+                    require(imported.isNotEmpty() && imported.values.any { it.isNotBlank() }) {
+                        "File '$fileName' tidak berisi terjemahan yang dapat diterapkan."
                     }
                     staged[entry.name] = imported
                 }
                 runOnUiThread {
                     batchTranslations.putAll(staged)
                     isAnalyzing = false
-                    status = "Impor massal berhasil: ${staged.size} proyek field tervalidasi. Arsip asli tidak diubah."
+                    val translatedCount = staged.values.sumOf { map -> map.values.count { it.isNotBlank() } }
+                    status = "Impor TXT massal berhasil: ${staged.size} field tervalidasi, $translatedCount dialog berisi terjemahan. Arsip asli tidak diubah."
                 }
             } catch (error: Exception) {
                 runOnUiThread {
                     isAnalyzing = false
-                    status = "Gagal impor massal: ${error.message ?: error.javaClass.simpleName}. Tidak ada proyek baru yang diterapkan."
+                    status = "Gagal impor TXT massal: ${error.message ?: error.javaClass.simpleName}. Tidak ada file yang diterapkan."
                 }
             }
         }.start()
