@@ -208,68 +208,86 @@ object FieldBinaryWriter {
     }
 
     private fun compressLzss(input: ByteArray): ByteArray {
-        val output = ByteArrayOutputStream()
-        val window = ByteArray(4096)
-        var windowPosition = 0xFEE
-        var history = 0
-        var inputPosition = 0
+        val body = ByteArrayOutputStream()
+        val chains = HashMap<Int, java.util.ArrayDeque<Int>>()
+        var position = 0
 
-        while (inputPosition < input.size) {
-            val controlIndex = output.size()
-            output.write(0)
-            var control = 0
-            for (bit in 0 until 8) {
-                if (inputPosition >= input.size) break
-                var bestLength = 0
-                var bestReference = 0
-                val maxLength = minOf(18, input.size - inputPosition)
-                val maxDistance = minOf(history, 4096)
-                for (distance in 1..maxDistance) {
-                    val reference = (windowPosition - distance) and 0xFFF
-                    var length = 0
-                    while (length < maxLength) {
-                        val candidate = if (length < distance) {
-                            window[(reference + length) and 0xFFF].toInt() and 0xFF
-                        } else {
-                            input[inputPosition + length - distance].toInt() and 0xFF
-                        }
-                        if (candidate != (input[inputPosition + length].toInt() and 0xFF)) break
-                        length++
-                    }
-                    if (length > bestLength) {
-                        bestLength = length
-                        bestReference = reference
-                        if (bestLength == maxLength) break
-                    }
-                }
-                if (bestLength >= 3) {
-                    output.write(bestReference and 0xFF)
-                    output.write(((bestReference shr 4) and 0xF0) or (bestLength - 3))
-                    repeat(bestLength) {
-                        val value = input[inputPosition++]
-                        window[windowPosition] = value
-                        windowPosition = (windowPosition + 1) and 0xFFF
-                        history = minOf(4096, history + 1)
-                    }
-                } else {
-                    control = control or (1 shl bit)
-                    val value = input[inputPosition++]
-                    output.write(value.toInt() and 0xFF)
-                    window[windowPosition] = value
-                    windowPosition = (windowPosition + 1) and 0xFFF
-                    history = minOf(4096, history + 1)
-                }
-            }
-            val bytes = output.toByteArray()
-            bytes[controlIndex] = control.toByte()
-            output.reset()
-            output.write(bytes)
+        fun keyAt(index: Int): Int {
+            return (input[index].toInt() and 0xFF) or
+                ((input[index + 1].toInt() and 0xFF) shl 8) or
+                ((input[index + 2].toInt() and 0xFF) shl 16)
         }
 
-        val body = output.toByteArray()
-        val result = ByteArray(body.size + 4)
-        putU32(result, 0, body.size.toLong())
-        body.copyInto(result, 4)
+        fun remember(index: Int) {
+            if (index + 2 >= input.size) return
+            val key = keyAt(index)
+            val chain = chains.getOrPut(key) { java.util.ArrayDeque() }
+            chain.addLast(index)
+            while (chain.isNotEmpty() && index - chain.peekFirst() > 4096) {
+                chain.removeFirst()
+            }
+            while (chain.size > 96) chain.removeFirst()
+        }
+
+        while (position < input.size) {
+            val controlIndex = body.size()
+            body.write(0)
+            var control = 0
+            for (bit in 0 until 8) {
+                if (position >= input.size) break
+                var bestLength = 0
+                var bestReference = 0
+                val maxLength = minOf(18, input.size - position)
+                if (maxLength >= 3) {
+                    val chain = chains[keyAt(position)]
+                    if (chain != null) {
+                        val iterator = chain.descendingIterator()
+                        var examined = 0
+                        while (iterator.hasNext() && examined < 96) {
+                            val candidate = iterator.next()
+                            val distance = position - candidate
+                            if (distance > 4096) break
+                            examined++
+                            var length = 0
+                            while (length < maxLength &&
+                                input[candidate + length] == input[position + length]
+                            ) {
+                                length++
+                            }
+                            if (length > bestLength) {
+                                bestLength = length
+                                bestReference = (0xFEE + candidate) and 0xFFF
+                                if (length == maxLength) break
+                            }
+                        }
+                    }
+                }
+
+                val consumed = if (bestLength >= 3) {
+                    body.write(bestReference and 0xFF)
+                    body.write(((bestReference shr 4) and 0xF0) or (bestLength - 3))
+                    bestLength
+                } else {
+                    control = control or (1 shl bit)
+                    body.write(input[position].toInt() and 0xFF)
+                    1
+                }
+
+                repeat(consumed) {
+                    remember(position)
+                    position++
+                }
+            }
+            val bytes = body.toByteArray()
+            bytes[controlIndex] = control.toByte()
+            body.reset()
+            body.write(bytes)
+        }
+
+        val compressedBody = body.toByteArray()
+        val result = ByteArray(compressedBody.size + 4)
+        putU32(result, 0, compressedBody.size.toLong())
+        compressedBody.copyInto(result, 4)
         return result
     }
 
