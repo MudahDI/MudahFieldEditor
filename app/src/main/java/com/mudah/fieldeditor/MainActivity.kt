@@ -494,7 +494,7 @@ class MainActivity : ComponentActivity() {
 
                         item {
                             Text(
-                                "Mudah Field Editor • Versi 0.6.0",
+                                "Mudah Field Editor • Versi 0.7.0",
                                 color = Color.Gray,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(top = 2.dp, bottom = 16.dp)
