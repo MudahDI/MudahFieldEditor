@@ -13,6 +13,23 @@ data class FieldSection(
     val valid: Boolean
 )
 
+
+data class FieldDialog(
+    val index: Int,
+    val offset: Int,
+    val length: Int,
+    val preview: String,
+    val rawHex: String
+)
+
+data class FieldDialogInfo(
+    val count: Int,
+    val dialogs: List<FieldDialog>,
+    val pointerBase: Int,
+    val valid: Boolean,
+    val notes: List<String>
+)
+
 data class FieldScriptInfo(
     val signature: Int,
     val entityCount: Int,
@@ -28,7 +45,8 @@ data class FieldScriptInfo(
     val akaoOffsets: List<Long>,
     val headerSize: Int,
     val valid: Boolean,
-    val notes: List<String>
+    val notes: List<String>,
+    val dialogInfo: FieldDialogInfo?
 )
 
 data class FieldAnalysis(
@@ -197,6 +215,24 @@ object FieldAnalyzer {
             notes += "Ada entry skrip di luar section."
         }
 
+        val dialogInfo = try {
+            parseDialogTable(
+                raw = raw,
+                sectionOffset = sectionOffset,
+                sectionLength = sectionLength,
+                stringOffset = stringOffset,
+                akaoOffsets = akaoOffsets
+            )
+        } catch (error: Exception) {
+            FieldDialogInfo(
+                count = 0,
+                dialogs = emptyList(),
+                pointerBase = -1,
+                valid = false,
+                notes = listOf("Tabel dialog belum dapat dibaca: ${error.message ?: "format tidak dikenali"}")
+            )
+        }
+
         return FieldScriptInfo(
             signature = signature,
             entityCount = entityCount,
@@ -212,8 +248,128 @@ object FieldAnalyzer {
             akaoOffsets = akaoOffsets,
             headerSize = headerSize,
             valid = notes.isEmpty(),
-            notes = notes
+            notes = notes,
+            dialogInfo = dialogInfo
         )
+    }
+
+    private fun parseDialogTable(
+        raw: ByteArray,
+        sectionOffset: Int,
+        sectionLength: Int,
+        stringOffset: Int,
+        akaoOffsets: List<Long>
+    ): FieldDialogInfo {
+        val notes = mutableListOf<String>()
+        if (stringOffset < 0 || stringOffset + 2 > sectionLength) {
+            throw IllegalArgumentException("Offset string berada di luar section.")
+        }
+        val tableStart = sectionOffset + stringOffset
+        val count = u16(raw, tableStart)
+        if (count > 4096) throw IllegalArgumentException("Jumlah dialog tidak wajar: $count.")
+        val tableBytes = 2L + count.toLong() * 2L
+        if (stringOffset.toLong() + tableBytes > sectionLength.toLong()) {
+            throw IllegalArgumentException("Tabel pointer dialog melewati batas section.")
+        }
+        if (count == 0) {
+            return FieldDialogInfo(0, emptyList(), tableStart + 2, true, listOf("Tabel terbaca, tetapi tidak memiliki dialog terdaftar."))
+        }
+
+        val pointers = (0 until count).map { u16(raw, tableStart + 2 + it * 2) }
+        val candidateBases = listOf(tableStart + 2, tableStart)
+        fun score(base: Int): Int {
+            return pointers.count { pointer ->
+                val target = base.toLong() + pointer.toLong()
+                target >= (tableStart + tableBytes).toLong() &&
+                    target < (sectionOffset + sectionLength).toLong() &&
+                    raw.getOrNull(target.toInt()) != null
+            }
+        }
+        val pointerBase = candidateBases.maxByOrNull { score(it) } ?: (tableStart + 2)
+        if (score(pointerBase) == 0) {
+            throw IllegalArgumentException("Tidak ada pointer dialog yang mengarah ke data valid.")
+        }
+        if (score(candidateBases[0]) == score(candidateBases[1])) {
+            notes += "Basis pointer dipilih secara heuristik; perlu dikonfirmasi pada field lain."
+        }
+
+        val sectionEnd = sectionOffset + sectionLength
+        val akaoBoundary = akaoOffsets
+            .map { it.toLong() }
+            .filter { it > stringOffset.toLong() && it < sectionLength.toLong() }
+            .minOrNull()
+            ?.let { sectionOffset + it } ?: sectionEnd
+        val targets = pointers.map { pointer ->
+            val target = pointerBase.toLong() + pointer.toLong()
+            if (target < (tableStart + tableBytes).toLong() || target >= akaoBoundary.toLong()) -1
+            else target.toInt()
+        }
+        val validTargets = targets.filter { it >= 0 }.distinct().sorted()
+        val dialogs = mutableListOf<FieldDialog>()
+        targets.forEachIndexed { index, target ->
+            if (target < 0) {
+                notes += "Pointer dialog ${index + 1} berada di luar area data dialog."
+            } else {
+                val nextTarget = validTargets.firstOrNull { it > target } ?: akaoBoundary
+                val limit = minOf(nextTarget, akaoBoundary, sectionEnd)
+                var end = target
+                while (end < limit && (raw[end].toInt() and 0xFF) != 0xFF) end++
+                if (end >= limit) {
+                    notes += "Dialog ${index + 1} tidak memiliki terminator 0xFF sebelum batas berikutnya."
+                } else {
+                    val bytes = raw.copyOfRange(target, end)
+                    dialogs += FieldDialog(
+                        index = index + 1,
+                        offset = target - sectionOffset,
+                        length = bytes.size + 1,
+                        preview = decodeDialogPreview(bytes),
+                        rawHex = bytes.take(48).joinToString(" ") { "%02X".format(it.toInt() and 0xFF) } +
+                            if (bytes.size > 48) " …" else ""
+                    )
+                }
+            }
+        }
+        return FieldDialogInfo(
+            count = count,
+            dialogs = dialogs,
+            pointerBase = pointerBase - sectionOffset,
+            valid = dialogs.size == count && notes.isEmpty(),
+            notes = notes.distinct()
+        )
+    }
+
+    private fun decodeDialogPreview(bytes: ByteArray): String {
+        val macRoman = runCatching { java.nio.charset.Charset.forName("x-MacRoman") }
+            .getOrElse { Charsets.ISO_8859_1 }
+        val out = StringBuilder()
+        var i = 0
+        while (i < bytes.size) {
+            val value = bytes[i].toInt() and 0xFF
+            when {
+                value == 0xE0 -> { out.append("{CHOICE}"); i++ }
+                value == 0xE1 -> { out.append("{TAB}"); i++ }
+                value == 0xE7 -> { out.append("\n"); i++ }
+                value == 0xE8 || value == 0xE9 -> { out.append("{NEXT WINDOW}"); i++ }
+                value in 0xEA..0xED || value in 0xF4..0xF5 -> { out.append("{CHAR NAME}"); i++ }
+                value == 0xFE && i + 1 < bytes.size -> {
+                    val arg = bytes[i + 1].toInt() and 0xFF
+                    val color = mapOf(0xD2 to "GRAY", 0xD3 to "BLUE", 0xD4 to "RED", 0xD5 to "PURPLE", 0xD6 to "GREEN", 0xD7 to "CYAN", 0xD8 to "YELLOW", 0xD9 to "WHITE")[arg]
+                    out.append(color?.let { "{COLOR:$it}" } ?: "{FE ${"%02X".format(arg)}}")
+                    i += 2
+                }
+                value in 0xFA..0xFD && i + 1 < bytes.size -> {
+                    out.append("{${"%02X".format(value)} ${"%02X".format(bytes[i + 1].toInt() and 0xFF)}}")
+                    i += 2
+                }
+                value == 0x00 -> { out.append(' '); i++ }
+                value < 0x20 -> { out.append(' '); i++ }
+                else -> {
+                    out.append(String(byteArrayOf(value.toByte()), macRoman))
+                    i++
+                }
+            }
+        }
+        return out.toString().replace(Regex("[ \\t]+"), " ").trim()
     }
 
     private fun fixedText(data: ByteArray, offset: Int, length: Int): String {
