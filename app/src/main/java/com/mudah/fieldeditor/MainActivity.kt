@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
             fieldAnalysis = null
             selectedDialogIndex = null
             dialogTranslations.clear()
+            batchTranslations.clear()
             searchQuery = ""
             status = "File dipilih. Tekan Baca Arsip untuk memindai indeks."
             try {
