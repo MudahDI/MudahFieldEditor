@@ -7,8 +7,9 @@ import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 
 /**
- * Replaceable local translation engine for the first FF7 translation test.
- * English -> Indonesian runs on-device after the language models are downloaded.
+ * English -> Indonesian on-device translation engine.
+ * FF7 commands and glossary entries are split out before translation,
+ * so the translation model never receives artificial placeholder markers.
  */
 data class TranslationFailure(
     val dialogIndex: Int,
@@ -43,7 +44,7 @@ class MlKitTranslationEngine : AutoCloseable {
         val failures = mutableListOf<TranslationFailure>()
         var position = 0
 
-        fun next() {
+        fun nextDialog() {
             if (position >= items.size) {
                 close()
                 onFinished(failures.toList())
@@ -51,32 +52,18 @@ class MlKitTranslationEngine : AutoCloseable {
             }
 
             val (dialogIndex, source) = items[position]
-            val protected = protectTokens(source)
-            if (protected.translatableText.isBlank()) {
-                onTranslated(dialogIndex, source)
-                position++
-                onProgress(position, items.size)
-                next()
-                return
-            }
+            val segments = splitProtectedSegments(source)
+            val output = StringBuilder()
+            var segmentPosition = 0
+            var failed = false
 
-            translator.translate(protected.translatableText)
-                .addOnSuccessListener { translated ->
-                    val restored = try {
-                        restoreTokens(translated, protected.tokens)
-                    } catch (error: Exception) {
-                        failures += TranslationFailure(
-                            dialogIndex, source, "Pemulihan kode/glosarium",
-                            error.message ?: error.javaClass.simpleName
-                        )
-                        null
-                    }
-
-                    if (restored != null) {
+            fun nextSegment() {
+                if (segmentPosition >= segments.size) {
+                    if (!failed) {
+                        val translated = output.toString()
                         try {
-                            // Reject unsupported glyphs before they enter the editable draft.
-                            FieldTextCodec.encode(restored)
-                            onTranslated(dialogIndex, restored)
+                            FieldTextCodec.encode(translated)
+                            onTranslated(dialogIndex, translated)
                         } catch (error: Exception) {
                             failures += TranslationFailure(
                                 dialogIndex, source, "Validasi karakter FF7",
@@ -86,34 +73,50 @@ class MlKitTranslationEngine : AutoCloseable {
                     }
                     position++
                     onProgress(position, items.size)
-                    next()
+                    nextDialog()
+                    return
                 }
-                .addOnFailureListener { error ->
-                    failures += TranslationFailure(
-                        dialogIndex, source, "Mesin terjemahan ML Kit",
-                        error.message ?: error.javaClass.simpleName
-                    )
-                    position++
-                    onProgress(position, items.size)
-                    next()
+
+                val segment = segments[segmentPosition++]
+                if (segment.protected || segment.text.isBlank()) {
+                    output.append(segment.text)
+                    nextSegment()
+                    return
                 }
+
+                translator.translate(segment.text)
+                    .addOnSuccessListener { translatedPart ->
+                        output.append(translatedPart)
+                        nextSegment()
+                    }
+                    .addOnFailureListener { error ->
+                        failed = true
+                        failures += TranslationFailure(
+                            dialogIndex,
+                            source,
+                            "Mesin terjemahan ML Kit",
+                            "Bagian teks '${segment.text.take(100)}': ${error.message ?: error.javaClass.simpleName}"
+                        )
+                        // Stop this dialog after a segment failure; do not save a partial translation.
+                        segmentPosition = segments.size
+                        nextSegment()
+                    }
+            }
+
+            nextSegment()
         }
 
         if (items.isEmpty()) {
             close()
             onFinished(emptyList())
         } else {
-            next()
+            nextDialog()
         }
     }
 
-    private data class ProtectedText(
-        val translatableText: String,
-        val tokens: List<String>
-    )
+    private data class TextSegment(val text: String, val protected: Boolean)
 
-    // Istilah FF7 yang harus konsisten dan tidak boleh dipotong oleh penerjemah.
-    // Daftar ini dapat diperluas setelah hasil uji dari dialog nyata diperiksa.
+    // Nama lokasi/karakter yang perlu konsisten dan tidak boleh diubah ML Kit.
     private val glossary = listOf(
         "Temple of the Ancients" to "Kuil Kuno",
         "Northern Crater" to "Kawah Utara",
@@ -141,57 +144,38 @@ class MlKitTranslationEngine : AutoCloseable {
         "Red XIII" to "Red XIII"
     )
 
-    private fun protectTokens(source: String): ProtectedText {
-        val tokens = mutableListOf<String>()
-        var protected = source
-        val glossaryPattern = Regex(
-            "(?i)(?<![A-Za-z0-9])(?:" +
-                glossary.sortedByDescending { it.first.length }
-                    .joinToString("|") { Regex.escape(it.first) } +
-                ")(?![A-Za-z0-9])"
+    private fun splitProtectedSegments(source: String): List<TextSegment> {
+        val glossaryAlternatives = glossary
+            .sortedByDescending { it.first.length }
+            .joinToString("|") { Regex.escape(it.first) }
+
+        // FF7 command tokens, formatting tags, line breaks, and glossary terms
+        // are emitted literally and never passed through the translation model.
+        val pattern = Regex(
+            "(?i)(?<![A-Za-z0-9])(?:$glossaryAlternatives)(?![A-Za-z0-9])" +
+                """|\{[^{}\r\n]+\}|\\[{}\\]|\[[^]\r\n]+\]|\([A-Z][A-Z0-9_ ]*\)|\r?\n|\t"""
         )
-        protected = glossaryPattern.replace(protected) { match ->
-            val translation = glossary.first {
-                it.first.equals(match.value, ignoreCase = true)
-            }.second
-            val index = tokens.size
-            tokens += translation
-            "QZXF7TOKEN${index}Q"
-        }
-        val controlPattern = Regex("""\{[^{}\r\n]+\}|\\[{}\\]|\r?\n|\t""")
-        protected = controlPattern.replace(protected) { match ->
-            val index = tokens.size
-            tokens += match.value
-            "QZXF7TOKEN${index}Q"
-        }
-        return ProtectedText(protected, tokens)
-    }
+        val segments = mutableListOf<TextSegment>()
+        var cursor = 0
 
-    private fun restoreTokens(translated: String, tokens: List<String>): String {
-        var result = translated
-        tokens.forEachIndexed { index, token ->
-            val marker = "QZXF7TOKEN${index}Q"
-            require(result.countSubstring(marker) == 1) {
-                "Penanda kode kontrol berubah saat diterjemahkan."
+        pattern.findAll(source).forEach { match ->
+            if (match.range.first > cursor) {
+                segments += TextSegment(source.substring(cursor, match.range.first), false)
             }
-            result = result.replace(marker, token)
-        }
-        require(!Regex("""QZXF7TOKEN\d+Q""").containsMatchIn(result)) {
-            "Ada penanda kode kontrol yang hilang atau berubah."
-        }
-        return result
-    }
 
-    private fun String.countSubstring(value: String): Int {
-        if (value.isEmpty()) return 0
-        var count = 0
-        var start = 0
-        while (true) {
-            val index = indexOf(value, start)
-            if (index < 0) return count
-            count++
-            start = index + value.length
+            val glossaryEntry = glossary.firstOrNull {
+                it.first.equals(match.value, ignoreCase = true)
+            }
+            val exactText = glossaryEntry?.second ?: match.value
+            segments += TextSegment(exactText, true)
+            cursor = match.range.last + 1
         }
+
+        if (cursor < source.length) {
+            segments += TextSegment(source.substring(cursor), false)
+        }
+        if (segments.isEmpty()) segments += TextSegment(source, false)
+        return segments
     }
 
     override fun close() {
