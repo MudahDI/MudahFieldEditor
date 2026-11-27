@@ -88,10 +88,54 @@ class MlKitTranslationEngine : AutoCloseable {
         val tokens: List<String>
     )
 
+    // Istilah FF7 yang harus konsisten dan tidak boleh dipotong oleh penerjemah.
+    // Daftar ini dapat diperluas setelah hasil uji dari dialog nyata diperiksa.
+    private val glossary = listOf(
+        "Temple of the Ancients" to "Kuil Kuno",
+        "Northern Crater" to "Kawah Utara",
+        "Bone Village" to "Desa Tulang",
+        "Fort Condor" to "Benteng Condor",
+        "Cosmo Canyon" to "Ngarai Cosmo",
+        "Rocket Town" to "Kota Roket",
+        "Wall Market" to "Pasar Tembok",
+        "Costa del Sol" to "Costa del Sol",
+        "Gold Saucer" to "Gold Saucer",
+        "Midgar" to "Midgar",
+        "Shinra" to "Shinra",
+        "Nibelheim" to "Nibelheim",
+        "Junon" to "Junon",
+        "Wutai" to "Wutai",
+        "Mideel" to "Mideel",
+        "Aerith" to "Aerith",
+        "Barret" to "Barret",
+        "Tifa" to "Tifa",
+        "Cloud" to "Cloud",
+        "Yuffie" to "Yuffie",
+        "Vincent" to "Vincent",
+        "Cid" to "Cid",
+        "Cait Sith" to "Cait Sith",
+        "Red XIII" to "Red XIII"
+    )
+
     private fun protectTokens(source: String): ProtectedText {
         val tokens = mutableListOf<String>()
-        val pattern = Regex("""\{[^{}\r\n]+\}|\\[{}\\]|\r?\n|\t""")
-        val protected = pattern.replace(source) { match ->
+        var protected = source
+        val glossaryPattern = Regex(
+            "(?i)(?<![A-Za-z0-9])(?:" +
+                glossary.sortedByDescending { it.first.length }
+                    .joinToString("|") { Regex.escape(it.first) } +
+                ")(?![A-Za-z0-9])"
+        )
+        protected = glossaryPattern.replace(protected) { match ->
+            val translation = glossary.first {
+                it.first.equals(match.value, ignoreCase = true)
+            }.second
+            val index = tokens.size
+            tokens += translation
+            "QZXF7TOKEN${index}Q"
+        }
+        val controlPattern = Regex("""\{[^{}\r\n]+\}|\\[{}\\]|\r?\n|\t""")
+        protected = controlPattern.replace(protected) { match ->
             val index = tokens.size
             tokens += match.value
             "QZXF7TOKEN${index}Q"
