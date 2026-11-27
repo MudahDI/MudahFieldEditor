@@ -13,10 +13,29 @@ data class FieldSection(
     val valid: Boolean
 )
 
+data class FieldScriptInfo(
+    val signature: Int,
+    val entityCount: Int,
+    val modelCount: Int,
+    val stringOffset: Int,
+    val akaoCount: Int,
+    val scale: Int,
+    val creator: String,
+    val fieldName: String,
+    val entityNames: List<String>,
+    val scriptSlots: List<Int>,
+    val populatedScriptSlots: Int,
+    val akaoOffsets: List<Long>,
+    val headerSize: Int,
+    val valid: Boolean,
+    val notes: List<String>
+)
+
 data class FieldAnalysis(
     val decompressedSize: Int,
     val sectionCount: Int,
-    val sections: List<FieldSection>
+    val sections: List<FieldSection>,
+    val scriptInfo: FieldScriptInfo?
 )
 
 object FieldAnalyzer {
@@ -100,11 +119,116 @@ object FieldAnalyzer {
             )
         }
 
+        val firstSection = sections.firstOrNull { it.index == 1 }
+            ?: throw IllegalArgumentException("Section Field Script & Dialog tidak ditemukan.")
+        val scriptInfo = parseScriptHeader(
+            raw = raw,
+            sectionOffset = firstSection.offset.toInt() + 4,
+            sectionLength = firstSection.dataLength.toInt()
+        )
+
         return FieldAnalysis(
             decompressedSize = raw.size,
             sectionCount = count.toInt(),
-            sections = sections.sortedBy { it.index }
+            sections = sections.sortedBy { it.index },
+            scriptInfo = scriptInfo
         )
+    }
+
+    private fun parseScriptHeader(
+        raw: ByteArray,
+        sectionOffset: Int,
+        sectionLength: Int
+    ): FieldScriptInfo {
+        fun requireRange(offset: Int, length: Int, label: String) {
+            if (offset < sectionOffset || length < 0 ||
+                offset.toLong() + length.toLong() > sectionOffset.toLong() + sectionLength ||
+                offset.toLong() + length.toLong() > raw.size.toLong()
+            ) {
+                throw IllegalArgumentException("Header skrip tidak lengkap pada $label.")
+            }
+        }
+
+        requireRange(sectionOffset, 32, "header dasar")
+        val signature = u16(raw, sectionOffset)
+        val entityCount = raw[sectionOffset + 2].toInt() and 0xFF
+        val modelCount = raw[sectionOffset + 3].toInt() and 0xFF
+        val stringOffset = u16(raw, sectionOffset + 4)
+        val akaoCount = u16(raw, sectionOffset + 6)
+        val scale = u16(raw, sectionOffset + 8)
+        val creator = fixedText(raw, sectionOffset + 16, 8)
+        val fieldName = fixedText(raw, sectionOffset + 24, 8)
+
+        val headerSizeLong = 32L + entityCount * 8L + akaoCount * 4L + entityCount * 32L * 2L
+        if (headerSizeLong > sectionLength.toLong() || headerSizeLong > Int.MAX_VALUE) {
+            throw IllegalArgumentException(
+                "Ukuran header skrip ($headerSizeLong byte) melewati batas section ($sectionLength byte)."
+            )
+        }
+        val headerSize = headerSizeLong.toInt()
+        var cursor = sectionOffset + 32
+        requireRange(cursor, entityCount * 8, "nama entitas")
+        val entityNames = (0 until entityCount).map { index ->
+            fixedText(raw, cursor + index * 8, 8).ifBlank { "Entitas ${index + 1}" }
+        }
+        cursor += entityCount * 8
+
+        requireRange(cursor, akaoCount * 4, "daftar AKAO")
+        val akaoOffsets = (0 until akaoCount).map { index ->
+            u32(raw, cursor + index * 4)
+        }
+        cursor += akaoCount * 4
+
+        val slotCount = entityCount * 32
+        requireRange(cursor, slotCount * 2, "tabel entry skrip")
+        val scriptSlots = (0 until slotCount).map { index ->
+            u16(raw, cursor + index * 2)
+        }
+        val populated = scriptSlots.count { it != 0 && it != 0xFFFF }
+
+        val notes = mutableListOf<String>()
+        if (signature != 0x0502) notes += "Signature bukan 0x0502; format perlu diperiksa."
+        if (stringOffset !in 0 until sectionLength) notes += "Offset string berada di luar section."
+        if (entityCount == 0) notes += "Tidak ada entitas yang terdaftar."
+        if (akaoOffsets.any { it >= sectionLength.toLong() }) {
+            notes += "Ada offset AKAO di luar section."
+        }
+        if (scriptSlots.any { it != 0 && it != 0xFFFF && it >= sectionLength }) {
+            notes += "Ada entry skrip di luar section."
+        }
+
+        return FieldScriptInfo(
+            signature = signature,
+            entityCount = entityCount,
+            modelCount = modelCount,
+            stringOffset = stringOffset,
+            akaoCount = akaoCount,
+            scale = scale,
+            creator = creator,
+            fieldName = fieldName,
+            entityNames = entityNames,
+            scriptSlots = scriptSlots,
+            populatedScriptSlots = populated,
+            akaoOffsets = akaoOffsets,
+            headerSize = headerSize,
+            valid = notes.isEmpty(),
+            notes = notes
+        )
+    }
+
+    private fun fixedText(data: ByteArray, offset: Int, length: Int): String {
+        if (offset < 0 || offset + length > data.size) return ""
+        val bytes = data.copyOfRange(offset, offset + length)
+        val end = bytes.indexOf(0).let { if (it < 0) bytes.size else it }
+        return bytes.copyOfRange(0, end).toString(Charsets.ISO_8859_1).trim()
+    }
+
+    private fun u16(data: ByteArray, offset: Int): Int {
+        if (offset < 0 || offset + 2 > data.size) {
+            throw IllegalArgumentException("Data tidak cukup untuk membaca integer 16-bit.")
+        }
+        return (data[offset].toInt() and 0xFF) or
+            ((data[offset + 1].toInt() and 0xFF) shl 8)
     }
 
     private fun decompressLzss(input: ByteArray, start: Int): ByteArray {
