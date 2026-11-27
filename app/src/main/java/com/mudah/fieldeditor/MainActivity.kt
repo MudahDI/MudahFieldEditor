@@ -924,27 +924,47 @@ class MainActivity : ComponentActivity() {
         }
 
         isExporting = true
-        status = "Membangun ulang flevel.lgp; semua entri lain dipertahankan..."
+        status = "Membangun dan memvalidasi seluruh entri flevel.lgp..."
         Thread {
+            var temporary: java.io.File? = null
             try {
                 val fieldResult = FieldBinaryWriter.build(analysis, translations)
                 val archive = LgpArchive(archiveEntries.size, archiveEntries)
-                val output = contentResolver.openOutputStream(destination)
-                    ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
-                val archiveResult = output.use { stream ->
+                val replacements = mapOf(member.entry.name to fieldResult.compressedBytes)
+                temporary = java.io.File.createTempFile("field-editor-lgp-", ".tmp", cacheDir)
+
+                val archiveResult = temporary.outputStream().use { stream ->
                     LgpArchiveWriter.build(
                         openSource = {
                             contentResolver.openInputStream(source)
                                 ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
                         },
                         archive = archive,
-                        replacements = mapOf(member.entry.name to fieldResult.compressedBytes),
+                        replacements = replacements,
                         output = stream
                     )
                 }
+
+                LgpArchiveWriter.validate(
+                    openSource = {
+                        contentResolver.openInputStream(source)
+                            ?: throw IllegalStateException("Tidak dapat membuka arsip sumber untuk validasi.")
+                    },
+                    archive = archive,
+                    replacements = replacements,
+                    outputFile = temporary
+                )
+                if (temporary.length() != archiveResult.outputBytes) {
+                    throw IllegalStateException("Ukuran file sementara tidak cocok dengan hasil rekonstruksi.")
+                }
+
+                contentResolver.openOutputStream(destination)?.use { output ->
+                    temporary.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+
                 runOnUiThread {
                     isExporting = false
-                    status = "Arsip LGP berhasil dibangun: ${archiveResult.entryCount} entri, 1 field diganti, ${formatSize(archiveResult.outputBytes)}. Arsip asli tidak diubah."
+                    status = "LGP lolos validasi penuh: ${archiveResult.entryCount} entri diperiksa, 1 field diganti, ${formatSize(archiveResult.outputBytes)}. Arsip asli tidak diubah."
                 }
             } catch (error: Exception) {
                 try {
@@ -954,13 +974,15 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     isExporting = false
                     val detail = error.message ?: error.javaClass.simpleName
-                    status = "Gagal membangun LGP: $detail. Arsip asli tetap aman."
+                    status = "Gagal membangun atau memvalidasi LGP: $detail. Arsip asli tetap aman."
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Rekonstruksi LGP gagal")
-                        .setMessage("$detail\n\nFile hasil kosong dihapus jika penyedia dokumen mengizinkan. Arsip game asli tidak diubah.")
+                        .setMessage("$detail\n\nFile hasil tidak digunakan dan dihapus jika penyedia dokumen mengizinkan. Arsip game asli tidak diubah.")
                         .setPositiveButton("OK", null)
                         .show()
                 }
+            } finally {
+                temporary?.delete()
             }
         }.start()
     }
