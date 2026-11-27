@@ -261,115 +261,151 @@ object FieldAnalyzer {
         akaoOffsets: List<Long>
     ): FieldDialogInfo {
         val notes = mutableListOf<String>()
-        if (stringOffset < 0 || stringOffset + 2 > sectionLength) {
+        if (stringOffset < 0 || stringOffset + 4 > sectionLength) {
             throw IllegalArgumentException("Offset string berada di luar section.")
         }
         val tableStart = sectionOffset + stringOffset
-        val count = u16(raw, tableStart)
-        if (count > 4096) throw IllegalArgumentException("Jumlah dialog tidak wajar: $count.")
-        val tableBytes = 2L + count.toLong() * 2L
-        if (stringOffset.toLong() + tableBytes > sectionLength.toLong()) {
+        val headerCount = u16(raw, tableStart)
+        val firstStringOffset = u16(raw, tableStart + 2)
+        if (firstStringOffset < 4 || firstStringOffset % 2 != 0) {
+            throw IllegalArgumentException("Offset string pertama tidak valid: 0x${firstStringOffset.toString(16).uppercase()}.")
+        }
+        val count = firstStringOffset / 2 - 1
+        if (count !in 1..256) throw IllegalArgumentException("Jumlah dialog hasil perhitungan tidak wajar: $count.")
+        if (stringOffset.toLong() + firstStringOffset.toLong() > sectionLength.toLong()) {
             throw IllegalArgumentException("Tabel pointer dialog melewati batas section.")
         }
-        if (count == 0) {
-            return FieldDialogInfo(0, emptyList(), tableStart + 2, true, listOf("Tabel terbaca, tetapi tidak memiliki dialog terdaftar."))
+        if (headerCount != count) {
+            notes += "Nilai jumlah pada header ($headerCount) berbeda dari jumlah pointer ($count); jumlah pointer digunakan."
         }
 
         val pointers = (0 until count).map { u16(raw, tableStart + 2 + it * 2) }
-        val candidateBases = listOf(tableStart + 2, tableStart)
-        fun score(base: Int): Int {
-            return pointers.count { pointer ->
-                val target = base.toLong() + pointer.toLong()
-                target >= (tableStart + tableBytes).toLong() &&
-                    target < (sectionOffset + sectionLength).toLong() &&
-                    raw.getOrNull(target.toInt()) != null
-            }
-        }
-        val pointerBase = candidateBases.maxByOrNull { score(it) } ?: (tableStart + 2)
-        if (score(pointerBase) == 0) {
-            throw IllegalArgumentException("Tidak ada pointer dialog yang mengarah ke data valid.")
-        }
-        if (score(candidateBases[0]) == score(candidateBases[1])) {
-            notes += "Basis pointer dipilih secara heuristik; perlu dikonfirmasi pada field lain."
-        }
-
         val sectionEnd = sectionOffset + sectionLength
         val akaoBoundary = akaoOffsets
             .map { it.toLong() }
             .filter { it > stringOffset.toLong() && it < sectionLength.toLong() }
             .minOrNull()
             ?.let { sectionOffset + it } ?: sectionEnd
-        val targets = pointers.map { pointer ->
-            val target = pointerBase.toLong() + pointer.toLong()
-            if (target < (tableStart + tableBytes).toLong() || target >= akaoBoundary.toLong()) -1
-            else target.toInt()
-        }
-        val validTargets = targets.filter { it >= 0 }.distinct().sorted()
+        val minimumStringTarget = tableStart + firstStringOffset
         val dialogs = mutableListOf<FieldDialog>()
-        targets.forEachIndexed { index, target ->
-            if (target < 0) {
+
+        pointers.forEachIndexed { index, pointer ->
+            val targetLong = tableStart.toLong() + pointer.toLong()
+            if (targetLong < minimumStringTarget.toLong() || targetLong >= akaoBoundary.toLong()) {
                 notes += "Pointer dialog ${index + 1} berada di luar area data dialog."
-            } else {
-                val nextTarget = validTargets.firstOrNull { it > target } ?: akaoBoundary
-                val limit = minOf(nextTarget.toLong(), akaoBoundary.toLong(), sectionEnd.toLong()).toInt()
-                var end = target
-                while (end < limit && (raw[end].toInt() and 0xFF) != 0xFF) end++
-                if (end >= limit) {
-                    notes += "Dialog ${index + 1} tidak memiliki terminator 0xFF sebelum batas berikutnya."
-                } else {
-                    val bytes = raw.copyOfRange(target, end)
-                    dialogs += FieldDialog(
-                        index = index + 1,
-                        offset = target - sectionOffset,
-                        length = bytes.size + 1,
-                        preview = decodeDialogPreview(bytes),
-                        rawHex = bytes.take(48).joinToString(" ") { "%02X".format(it.toInt() and 0xFF) } +
-                            if (bytes.size > 48) " …" else ""
-                    )
-                }
+                return@forEachIndexed
             }
+            val target = targetLong.toInt()
+            var end = target
+            while (end < akaoBoundary && (raw[end].toInt() and 0xFF) != 0xFF) end++
+            if (end >= akaoBoundary) {
+                notes += "Dialog ${index + 1} tidak memiliki terminator 0xFF sebelum blok data berikutnya."
+                return@forEachIndexed
+            }
+            val bytes = raw.copyOfRange(target, end)
+            dialogs += FieldDialog(
+                index = index + 1,
+                offset = target - sectionOffset,
+                length = bytes.size + 1,
+                preview = decodeDialogPreview(bytes),
+                rawHex = bytes.take(48).joinToString(" ") { "%02X".format(it.toInt() and 0xFF) } +
+                    if (bytes.size > 48) " …" else ""
+            )
         }
         return FieldDialogInfo(
             count = count,
             dialogs = dialogs,
-            pointerBase = pointerBase - sectionOffset,
-            valid = dialogs.size == count && notes.isEmpty(),
+            pointerBase = stringOffset,
+            valid = dialogs.size == count,
             notes = notes.distinct()
         )
     }
 
     private fun decodeDialogPreview(bytes: ByteArray): String {
-        val macRoman = runCatching { java.nio.charset.Charset.forName("x-MacRoman") }
-            .getOrElse { Charsets.ISO_8859_1 }
+        // English FF7 field text uses a dedicated 0x00..0xDF character table.
+        // The table is taken from the documented FF7 field-text mapping.
+        val normalChars =
+            " !\\\"#$%&'()*+,-./01234" +
+            "56789:;<=>?@ABCDEFGHI" +
+            "JKLMNOPQRSTUVWXYZ[\\\\]^" +
+            "_\\u0060abcdefghijklmnopqrs" +
+            "tuvwxyz{|}~ ÄÅÇÉÑÖÜáà" +
+            "âäãåçéèêëíìîïñóòôöõúù" +
+            "ûü♥°¢£↔→♪ßα  ´¨≠ÆØ∞±≤" +
+            "≥¥µ∂ΣΠπ⌡ªºΩæø¿¡¬√ƒ≈∆«" +
+            "»… ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄ ‹" +
+            "›ﬁﬂ■‧‚„‰ÂÊÁËÈÍÎÏÌÓÔ Ò" +
+            "ÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ       "
+
+        val specialChars = mapOf(
+            0xE0 to "{CHOICE}", 0xE1 to "\\t", 0xE2 to ", ", 0xE3 to ".\\\"", 0xE4 to "…\\\"",
+            0xE6 to "⑬", 0xE7 to "\\n", 0xE8 to "{NEW}\\n",
+            0xEA to "{CLOUD}", 0xEB to "{BARRET}", 0xEC to "{TIFA}", 0xED to "{AERITH}",
+            0xEE to "{RED XIII}", 0xEF to "{YUFFIE}", 0xF0 to "{CAIT SITH}",
+            0xF1 to "{VINCENT}", 0xF2 to "{CID}", 0xF3 to "{PARTY #1}",
+            0xF4 to "{PARTY #2}", 0xF5 to "{PARTY #3}", 0xF6 to "〇",
+            0xF7 to "△", 0xF8 to "☐", 0xF9 to "✕"
+        )
+        val controlCodes = mapOf(
+            0xD2 to "GRAY", 0xD3 to "BLUE", 0xD4 to "RED", 0xD5 to "PURPLE",
+            0xD6 to "GREEN", 0xD7 to "CYAN", 0xD8 to "YELLOW", 0xD9 to "WHITE",
+            0xDA to "FLASH", 0xDB to "RAINBOW", 0xDC to "PAUSE", 0xDE to "NUM",
+            0xDF to "HEX", 0xE0 to "SCROLL", 0xE1 to "RNUM", 0xE9 to "FIXED"
+        )
+
         val out = StringBuilder()
         var i = 0
         while (i < bytes.size) {
             val value = bytes[i].toInt() and 0xFF
             when {
-                value == 0xE0 -> { out.append("{CHOICE}"); i++ }
-                value == 0xE1 -> { out.append("{TAB}"); i++ }
-                value == 0xE7 -> { out.append("\n"); i++ }
-                value == 0xE8 || value == 0xE9 -> { out.append("{NEXT WINDOW}"); i++ }
-                value in 0xEA..0xED || value in 0xF4..0xF5 -> { out.append("{CHAR NAME}"); i++ }
-                value == 0xFE && i + 1 < bytes.size -> {
-                    val arg = bytes[i + 1].toInt() and 0xFF
-                    val color = mapOf(0xD2 to "GRAY", 0xD3 to "BLUE", 0xD4 to "RED", 0xD5 to "PURPLE", 0xD6 to "GREEN", 0xD7 to "CYAN", 0xD8 to "YELLOW", 0xD9 to "WHITE")[arg]
-                    out.append(color?.let { "{COLOR:$it}" } ?: "{FE ${"%02X".format(arg)}}")
-                    i += 2
+                value < 0xE0 -> {
+                    out.append(if (value < normalChars.length) normalChars[value] else "�")
+                    i++
                 }
-                value in 0xFA..0xFD && i + 1 < bytes.size -> {
-                    out.append("{${"%02X".format(value)} ${"%02X".format(bytes[i + 1].toInt() and 0xFF)}}")
-                    i += 2
+                value == 0xFE -> {
+                    if (i + 1 >= bytes.size) {
+                        out.append("{FE}")
+                        i++
+                    } else {
+                        val code = bytes[i + 1].toInt() and 0xFF
+                        when (code) {
+                            0xDD -> {
+                                if (i + 3 < bytes.size) {
+                                    val frames = (bytes[i + 2].toInt() and 0xFF) or
+                                        ((bytes[i + 3].toInt() and 0xFF) shl 8)
+                                    out.append("{WAIT $frames}")
+                                    i += 4
+                                } else {
+                                    out.append("{WAIT ?}")
+                                    i = bytes.size
+                                }
+                            }
+                            0xE2 -> {
+                                if (i + 5 < bytes.size) {
+                                    val off = (bytes[i + 2].toInt() and 0xFF) or ((bytes[i + 3].toInt() and 0xFF) shl 8)
+                                    val len = (bytes[i + 4].toInt() and 0xFF) or ((bytes[i + 5].toInt() and 0xFF) shl 8)
+                                    out.append("{STR %04X %04X}".format(off, len))
+                                    i += 6
+                                } else {
+                                    out.append("{STR ?}")
+                                    i = bytes.size
+                                }
+                            }
+                            else -> {
+                                val label = controlCodes[code]
+                                out.append(label?.let { "{$it}" } ?: "{FE %02X}".format(code))
+                                i += 2
+                            }
+                        }
+                    }
                 }
-                value == 0x00 -> { out.append(' '); i++ }
-                value < 0x20 -> { out.append(' '); i++ }
                 else -> {
-                    out.append(String(byteArrayOf(value.toByte()), macRoman))
+                    out.append(specialChars[value] ?: "{%02X}".format(value))
                     i++
                 }
             }
         }
-        return out.toString().replace(Regex("[ \\t]+"), " ").trim()
+        return out.toString()
     }
 
     private fun fixedText(data: ByteArray, offset: Int, length: Int): String {
