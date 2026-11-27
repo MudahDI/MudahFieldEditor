@@ -311,7 +311,7 @@ object FieldAnalyzer {
                 notes += "Pointer dialog ${index + 1} berada di luar area data dialog."
             } else {
                 val nextTarget = validTargets.firstOrNull { it > target } ?: akaoBoundary
-                val limit = minOf(nextTarget, akaoBoundary, sectionEnd.toLong()).toInt()
+                val limit = minOf(nextTarget.toLong(), akaoBoundary.toLong(), sectionEnd.toLong()).toInt()
                 var end = target
                 while (end < limit && (raw[end].toInt() and 0xFF) != 0xFF) end++
                 if (end >= limit) {
