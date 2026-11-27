@@ -152,8 +152,8 @@ class MlKitTranslationEngine : AutoCloseable {
         // FF7 command tokens, formatting tags, line breaks, and glossary terms
         // are emitted literally and never passed through the translation model.
         val pattern = Regex(
-            "(?i)(?<![A-Za-z0-9])(?:$glossaryAlternatives)(?![A-Za-z0-9])" +
-                """|\{[^{}\r\n]+\}|\\[{}\\]|\[[^]\r\n]+\]|\([A-Z][A-Z0-9_ ]*\)|\r?\n|\t"""
+            "(?<![A-Za-z0-9])(?i:$glossaryAlternatives)(?![A-Za-z0-9])" +
+                """|\{[^{}\r\n]+\}|\\[{}\\]|\[[^\]\r\n]+\]|\([A-Z][A-Z0-9_ ]*\)|\r?\n|\t"""
         )
         val segments = mutableListOf<TextSegment>()
         var cursor = 0
