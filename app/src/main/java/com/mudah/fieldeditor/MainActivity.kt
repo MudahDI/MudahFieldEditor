@@ -555,20 +555,17 @@ class MainActivity : ComponentActivity() {
                                                         onClick = { selectedDialogIndex = dialog.index },
                                                         modifier = Modifier.fillMaxWidth().padding(top = 3.dp)
                                                     ) { Text(if (selectedDialogIndex == dialog.index) "Dialog ${dialog.index} dipilih" else "Terjemahkan dialog ${dialog.index}") }
-                                                }
-                                                selectedDialogIndex?.let { selectedIndex ->
-                                                    val selectedDialog = dialogInfo.dialogs.firstOrNull { it.index == selectedIndex }
-                                                    if (selectedDialog != null) {
+                                                    if (selectedDialogIndex == dialog.index) {
                                                         Text(
-                                                            "DRAF TERJEMAHAN • DIALOG ${selectedDialog.index}",
+                                                            "DRAF TERJEMAHAN • DIALOG ${dialog.index}",
                                                             color = Color(0xFF9CC7FF),
                                                             style = MaterialTheme.typography.labelLarge,
                                                             modifier = Modifier.padding(top = 10.dp)
                                                         )
-                                                        Text("Teks asli: ${selectedDialog.preview}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                                                        Text("Teks asli: ${dialog.preview}", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                                                         OutlinedTextField(
-                                                            value = dialogTranslations[selectedIndex] ?: "",
-                                                            onValueChange = { dialogTranslations[selectedIndex] = it },
+                                                            value = dialogTranslations[dialog.index] ?: "",
+                                                            onValueChange = { dialogTranslations[dialog.index] = it },
                                                             modifier = Modifier.fillMaxWidth(),
                                                             minLines = 3,
                                                             label = { Text("Terjemahan Bahasa Indonesia") }
