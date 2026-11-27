@@ -112,6 +112,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val createPatchedArchiveExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri != null) exportTranslatedArchive(uri)
+    }
+
     private val openTranslationImport = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -538,6 +544,11 @@ class MainActivity : ComponentActivity() {
                                                     onClick = { createPatchedFieldExport.launch("${info.fieldName.ifBlank { "field" }}_translated.bin") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Terapkan & Ekspor Field (.bin)") }
+                                                Button(
+                                                    onClick = { createPatchedArchiveExport.launch("flevel_translated.lgp") },
+                                                    enabled = selectedFile != null && entries.isNotEmpty() && selectedMember != null && !isExporting,
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                                ) { Text("Bangun flevel.lgp (field aktif)") }
                                                 Text(
                                                     "Ekspor ini menghasilkan satu member field terkompresi (.bin), belum mengganti entri di flevel.lgp.",
                                                     color = Color(0xFFFFD18A),
@@ -894,6 +905,59 @@ class MainActivity : ComponentActivity() {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Ekspor field gagal")
                         .setMessage("$detail\n\nFile hasil kosong telah dihapus jika penyedia dokumen mengizinkan. File game asli tidak diubah.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun exportTranslatedArchive(destination: Uri) {
+        val source = selectedFile
+        val archiveEntries = entries.toList()
+        val member = selectedMember
+        val analysis = fieldAnalysis
+        val translations = dialogTranslations.toMap()
+        if (source == null || archiveEntries.isEmpty() || member == null || analysis == null) {
+            status = "Pilih dan analisis satu field terlebih dahulu."
+            return
+        }
+
+        isExporting = true
+        status = "Membangun ulang flevel.lgp; semua entri lain dipertahankan..."
+        Thread {
+            try {
+                val fieldResult = FieldBinaryWriter.build(analysis, translations)
+                val archive = LgpArchive(archiveEntries.size, archiveEntries)
+                val output = contentResolver.openOutputStream(destination)
+                    ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+                val archiveResult = output.use { stream ->
+                    LgpArchiveWriter.build(
+                        openSource = {
+                            contentResolver.openInputStream(source)
+                                ?: throw IllegalStateException("Tidak dapat membuka arsip sumber.")
+                        },
+                        archive = archive,
+                        replacements = mapOf(member.entry.name to fieldResult.compressedBytes),
+                        output = stream
+                    )
+                }
+                runOnUiThread {
+                    isExporting = false
+                    status = "Arsip LGP berhasil dibangun: ${archiveResult.entryCount} entri, 1 field diganti, ${formatSize(archiveResult.outputBytes)}. Arsip asli tidak diubah."
+                }
+            } catch (error: Exception) {
+                try {
+                    DocumentsContract.deleteDocument(contentResolver, destination)
+                } catch (_: Exception) {
+                }
+                runOnUiThread {
+                    isExporting = false
+                    val detail = error.message ?: error.javaClass.simpleName
+                    status = "Gagal membangun LGP: $detail. Arsip asli tetap aman."
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Rekonstruksi LGP gagal")
+                        .setMessage("$detail\n\nFile hasil kosong dihapus jika penyedia dokumen mengizinkan. Arsip game asli tidak diubah.")
                         .setPositiveButton("OK", null)
                         .show()
                 }
