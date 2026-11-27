@@ -24,7 +24,7 @@ object FieldTextCodec {
 
     private val specialChars = mapOf(
         0xE0 to "{CHOICE}", 0xE1 to "\t", 0xE2 to ", ", 0xE3 to ".\"",
-        0xE4 to "…\"", 0xE6 to "⑬", 0xE7 to "\n", 0xE8 to "{NEW}\n",
+        0xE4 to "…\"", 0xE6 to "⑬", 0xE7 to "\n", 0xE8 to "{NEW PAGE}\n",
         0xEA to "{CLOUD}", 0xEB to "{BARRET}", 0xEC to "{TIFA}",
         0xED to "{AERITH}", 0xEE to "{RED XIII}", 0xEF to "{YUFFIE}",
         0xF0 to "{CAIT SITH}", 0xF1 to "{VINCENT}", 0xF2 to "{CID}",
@@ -43,6 +43,7 @@ object FieldTextCodec {
     private val simpleCommands = buildMap<String, ByteArray> {
         put("CHOICE", byteArrayOf(0xE0.toByte()))
         put("NEW", byteArrayOf(0xE8.toByte()))
+        put("NEW PAGE", byteArrayOf(0xE8.toByte()))
         put("CLOUD", byteArrayOf(0xEA.toByte()))
         put("BARRET", byteArrayOf(0xEB.toByte()))
         put("TIFA", byteArrayOf(0xEC.toByte()))
@@ -186,7 +187,7 @@ object FieldTextCodec {
                     else -> throw IllegalArgumentException("Perintah FF7 tidak dikenal: {$command}")
                 }
                 i = end + 1
-                if (command == "NEW" && i < text.length && text[i] == '\n') i++
+                if ((command == "NEW" || command == "NEW PAGE") && i < text.length && text[i] == '\n') i++
                 continue
             }
 
