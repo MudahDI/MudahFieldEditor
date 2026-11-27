@@ -99,6 +99,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val createPatchedFieldExport = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val analysis = fieldAnalysis
+        val translations = dialogTranslations.toMap()
+        if (uri != null && analysis != null) {
+            exportTranslatedField(uri, analysis, translations)
+        }
+    }
+
     private val openTranslationImport = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -521,6 +531,10 @@ class MainActivity : ComponentActivity() {
                                                     onClick = { createTranslationExport.launch("${info.fieldName.ifBlank { "field" }}_translation.json") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                                                 ) { Text("Ekspor Proyek Terjemahan (JSON)") }
+                                                Button(
+                                                    onClick = { createPatchedFieldExport.launch("${info.fieldName.ifBlank { "field" }}_translated.bin") },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                                ) { Text("Terapkan & Ekspor Field (.bin)") }
                                                 Text(
                                                     "Pilih dialog untuk mengisi draf terjemahan. Tahap ini menyimpan proyek terjemahan terpisah; belum mengubah data game.",
                                                     color = Color(0xFFFFD18A),
@@ -831,6 +845,32 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     isExporting = false
                     status = "Gagal mengekspor: ${error.message ?: "Kesalahan tidak diketahui"}"
+                }
+            }
+        }.start()
+    }
+
+    private fun exportTranslatedField(
+        destination: Uri,
+        analysis: FieldAnalysis,
+        translations: Map<Int, String>
+    ) {
+        isExporting = true
+        status = "Menerapkan terjemahan dan memvalidasi ulang struktur field..."
+        Thread {
+            try {
+                val result = FieldBinaryWriter.build(analysis, translations)
+                contentResolver.openOutputStream(destination)?.use { output ->
+                    output.write(result.compressedBytes)
+                } ?: throw IllegalStateException("Tidak dapat membuat file tujuan.")
+                runOnUiThread {
+                    isExporting = false
+                    status = "Field berhasil dibuat dan divalidasi. ${result.changedDialogs} dialog berubah; ukuran data dialog ${result.oldDialogBytes} → ${result.newDialogBytes} byte. File hasil masih berupa member field terkompresi, belum arsip LGP lengkap."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    isExporting = false
+                    status = "Gagal menerapkan terjemahan: ${error.message ?: "kesalahan tidak diketahui"}. File game asli tetap aman."
                 }
             }
         }.start()
