@@ -10,6 +10,13 @@ import com.google.mlkit.nl.translate.TranslatorOptions
  * Replaceable local translation engine for the first FF7 translation test.
  * English -> Indonesian runs on-device after the language models are downloaded.
  */
+data class TranslationFailure(
+    val dialogIndex: Int,
+    val sourceText: String,
+    val stage: String,
+    val reason: String
+)
+
 class MlKitTranslationEngine : AutoCloseable {
     private val translator: Translator = Translation.getClient(
         TranslatorOptions.Builder()
@@ -31,15 +38,15 @@ class MlKitTranslationEngine : AutoCloseable {
         items: List<Pair<Int, String>>,
         onProgress: (completed: Int, total: Int) -> Unit,
         onTranslated: (dialogIndex: Int, translatedText: String) -> Unit,
-        onFinished: (failures: List<String>) -> Unit
+        onFinished: (failures: List<TranslationFailure>) -> Unit
     ) {
-        val failures = mutableListOf<String>()
+        val failures = mutableListOf<TranslationFailure>()
         var position = 0
 
         fun next() {
             if (position >= items.size) {
                 close()
-                onFinished(failures)
+                onFinished(failures.toList())
                 return
             }
 
@@ -55,20 +62,37 @@ class MlKitTranslationEngine : AutoCloseable {
 
             translator.translate(protected.translatableText)
                 .addOnSuccessListener { translated ->
-                    try {
-                        val restored = restoreTokens(translated, protected.tokens)
-                        // Reject unsupported glyphs before they enter the editable draft.
-                        FieldTextCodec.encode(restored)
-                        onTranslated(dialogIndex, restored)
+                    val restored = try {
+                        restoreTokens(translated, protected.tokens)
                     } catch (error: Exception) {
-                        failures += "Dialog $dialogIndex: ${error.message ?: "hasil tidak valid"}"
+                        failures += TranslationFailure(
+                            dialogIndex, source, "Pemulihan kode/glosarium",
+                            error.message ?: error.javaClass.simpleName
+                        )
+                        null
+                    }
+
+                    if (restored != null) {
+                        try {
+                            // Reject unsupported glyphs before they enter the editable draft.
+                            FieldTextCodec.encode(restored)
+                            onTranslated(dialogIndex, restored)
+                        } catch (error: Exception) {
+                            failures += TranslationFailure(
+                                dialogIndex, source, "Validasi karakter FF7",
+                                error.message ?: error.javaClass.simpleName
+                            )
+                        }
                     }
                     position++
                     onProgress(position, items.size)
                     next()
                 }
                 .addOnFailureListener { error ->
-                    failures += "Dialog $dialogIndex: ${error.message ?: "terjemahan gagal"}"
+                    failures += TranslationFailure(
+                        dialogIndex, source, "Mesin terjemahan ML Kit",
+                        error.message ?: error.javaClass.simpleName
+                    )
                     position++
                     onProgress(position, items.size)
                     next()
