@@ -90,7 +90,7 @@ class MlKitTranslationEngine : AutoCloseable {
 
     private fun protectTokens(source: String): ProtectedText {
         val tokens = mutableListOf<String>()
-        val pattern = Regex("""\\{[^{}\\r\\n]+\\}|\\\\[{}\\\\]|\\r?\\n|\\t""")
+        val pattern = Regex("""\{[^{}\r\n]+\}|\\[{}\\]|\r?\n|\t""")
         val protected = pattern.replace(source) { match ->
             val index = tokens.size
             tokens += match.value
@@ -108,7 +108,7 @@ class MlKitTranslationEngine : AutoCloseable {
             }
             result = result.replace(marker, token)
         }
-        require(!Regex("""QZXF7TOKEN\\d+Q""").containsMatchIn(result)) {
+        require(!Regex("""QZXF7TOKEN\d+Q""").containsMatchIn(result)) {
             "Ada penanda kode kontrol yang hilang atau berubah."
         }
         return result
