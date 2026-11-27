@@ -328,22 +328,26 @@ object FieldAnalyzer {
     private fun decodeDialogPreview(bytes: ByteArray): String {
         // English FF7 field text uses a dedicated 0x00..0xDF character table.
         // The table is taken from the documented FF7 field-text mapping.
-        val normalChars =
-            " !\"#$%&'()*+,-./01234" +
-            "56789:;<=>?@ABCDEFGHI" +
-            "JKLMNOPQRSTUVWXYZ[\\]^" +
-            "_\u0060abcdefghijklmnopqrs" +
-            "tuvwxyz{|}~ ÄÅÇÉÑÖÜáà" +
-            "âäãåçéèêëíìîïñóòôöõúù" +
-            "ûü♥°¢£↔→♪ßα  ´¨≠ÆØ∞±≤" +
-            "≥¥µ∂ΣΠπ⌡ªºΩæø¿¡¬√ƒ≈∆«" +
-            "»… ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄ ‹" +
-            "›ﬁﬂ■‧‚„‰ÂÊÁËÈÍÎÏÌÓÔ Ò" +
-            "ÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ       "
+        val normalChars = listOf(
+            " !”#$%&’()*+,-./",
+            "0123456789:;<=>?",
+            "@ABCDEFGHIJKLMNO",
+            "PQRSTUVWXYZ[\\]^_",
+            "`abcdefghijklmno",
+            "pqrstuvwxyz{|}~ ",
+            "ÄÁÇÉÑÖÜáàâäãåçéè",
+            "êëíìîïñóòôöõúùûü",
+            "⌘°¢£ÙÛ¶ß®©™´¨≠ÆØ",
+            "∞±≤≥¥µ∂ΣΠπ⌡ªºΩæø",
+            "¿¡¬√ƒ≈∆«»… ÀÃÕŒœ",
+            "–—“”‘’÷◊ÿŸ⁄¤‹›ﬁﬂ",
+            "■▪‚„‰ÂÊËÁÈíîïìÓÔ",
+            " ÒÙÛ"
+        ).joinToString("").toList()
 
         val specialChars = mapOf(
             0xE0 to "{CHOICE}", 0xE1 to "\t", 0xE2 to ", ", 0xE3 to ".\"", 0xE4 to "…\"",
-            0xE6 to "⑬", 0xE7 to "\n", 0xE8 to "{NEW}\n",
+            0xE7 to "\n", 0xE8 to "{NEW SCREEN}\n", 0xE9 to "{NEW SCREEN?}",
             0xEA to "{CLOUD}", 0xEB to "{BARRET}", 0xEC to "{TIFA}", 0xED to "{AERITH}",
             0xEE to "{RED XIII}", 0xEF to "{YUFFIE}", 0xF0 to "{CAIT SITH}",
             0xF1 to "{VINCENT}", 0xF2 to "{CID}", 0xF3 to "{PARTY #1}",
@@ -362,8 +366,12 @@ object FieldAnalyzer {
         while (i < bytes.size) {
             val value = bytes[i].toInt() and 0xFF
             when {
-                value < 0xE0 -> {
-                    out.append(if (value < normalChars.length) normalChars[value] else "�")
+                value < 0xD4 -> {
+                    out.append(normalChars[value])
+                    i++
+                }
+                value in 0xD4..0xDF -> {
+                    out.append("{%02X}".format(value))
                     i++
                 }
                 value == 0xFE -> {
