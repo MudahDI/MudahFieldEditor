@@ -230,8 +230,7 @@ object FieldBinaryWriter {
         }
 
         while (position < input.size) {
-            val controlIndex = body.size()
-            body.write(0)
+            val group = ByteArrayOutputStream()
             var control = 0
             for (bit in 0 until 8) {
                 if (position >= input.size) break
@@ -264,12 +263,12 @@ object FieldBinaryWriter {
                 }
 
                 val consumed = if (bestLength >= 3) {
-                    body.write(bestReference and 0xFF)
-                    body.write(((bestReference shr 4) and 0xF0) or (bestLength - 3))
+                    group.write(bestReference and 0xFF)
+                    group.write(((bestReference shr 4) and 0xF0) or (bestLength - 3))
                     bestLength
                 } else {
                     control = control or (1 shl bit)
-                    body.write(input[position].toInt() and 0xFF)
+                    group.write(input[position].toInt() and 0xFF)
                     1
                 }
 
@@ -278,10 +277,8 @@ object FieldBinaryWriter {
                     position++
                 }
             }
-            val bytes = body.toByteArray()
-            bytes[controlIndex] = control.toByte()
-            body.reset()
-            body.write(bytes)
+            body.write(control)
+            body.write(group.toByteArray())
         }
 
         val compressedBody = body.toByteArray()
