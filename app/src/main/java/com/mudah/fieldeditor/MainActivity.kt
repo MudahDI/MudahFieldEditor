@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     private var isAnalyzing by mutableStateOf(false)
     private var isAutoTranslating by mutableStateOf(false)
     private var autoTranslateProgress by mutableStateOf("")
+    private var autoTranslateFailures by mutableStateOf<List<TranslationFailure>>(emptyList())
     private var selectedDialogIndex by mutableStateOf<Int?>(null)
     private val dialogTranslations = mutableStateMapOf<Int, String>()
     private val batchTranslations = mutableStateMapOf<String, Map<Int, String>>()
@@ -584,6 +585,23 @@ class MainActivity : ComponentActivity() {
                                                         modifier = Modifier.padding(top = 4.dp)
                                                     )
                                                 }
+                                                if (autoTranslateFailures.isNotEmpty()) {
+                                                    Button(
+                                                        onClick = {
+                                                            val details = autoTranslateFailures.joinToString("\n\n") { failure ->
+                                                                "Dialog ${failure.dialogIndex} • ${failure.stage}\nTeks sumber: ${failure.sourceText}\nAlasan: ${failure.reason}"
+                                                            }
+                                                            AlertDialog.Builder(this@MainActivity)
+                                                                .setTitle("${autoTranslateFailures.size} Dialog Gagal")
+                                                                .setMessage(details)
+                                                                .setPositiveButton("Tutup", null)
+                                                                .show()
+                                                        },
+                                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                                    ) {
+                                                        Text("Lihat detail kegagalan (${autoTranslateFailures.size})")
+                                                    }
+                                                }
                                                 Text(
                                                     "Basis pointer: 0x${dialogInfo.pointerBase.toString(16).uppercase()}",
                                                     color = Color.Gray,
@@ -1001,6 +1019,7 @@ class MainActivity : ComponentActivity() {
         }
 
         isAutoTranslating = true
+        autoTranslateFailures = emptyList()
         autoTranslateProgress = "Menyiapkan model English → Indonesian. Unduhan model memerlukan Wi-Fi."
         status = "Auto Translate: menyiapkan model ML Kit di perangkat..."
         val engine = MlKitTranslationEngine()
@@ -1029,12 +1048,13 @@ class MainActivity : ComponentActivity() {
                 onFinished = { failures ->
                     runOnUiThread {
                         isAutoTranslating = false
+                        autoTranslateFailures = failures
                         val succeeded = pending.size - failures.size
                         autoTranslateProgress = "Selesai: $succeeded / ${pending.size} dialog berhasil."
                         status = if (failures.isEmpty()) {
                             "Auto Translate selesai. Draf tersimpan di editor; periksa hasil sebelum ekspor."
                         } else {
-                            "Auto Translate selesai sebagian. ${failures.size} dialog gagal validasi/terjemahan: ${failures.take(3).joinToString(" • ")}"
+                            "Auto Translate selesai sebagian. ${failures.size} dialog gagal. Tekan 'Lihat detail kegagalan' untuk mengetahui penyebab tiap dialog."
                         }
                     }
                 }
