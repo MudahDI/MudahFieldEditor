@@ -328,7 +328,7 @@ object FieldAnalyzer {
             " !\"#$%&'()*+,-./01234" +
             "56789:;<=>?@ABCDEFGHI" +
             "JKLMNOPQRSTUVWXYZ[\\]^" +
-            "_\\u0060abcdefghijklmnopqrs" +
+            "_\u0060abcdefghijklmnopqrs" +
             "tuvwxyz{|}~ ÄÅÇÉÑÖÜáà" +
             "âäãåçéèêëíìîïñóòôöõúù" +
             "ûü♥°¢£↔→♪ßα  ´¨≠ÆØ∞±≤" +
