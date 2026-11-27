@@ -178,6 +178,13 @@ class MainActivity : ComponentActivity() {
                 translationImportStatus = "Gagal mengimpor: ${error.message ?: "kesalahan tidak diketahui"}"
                 status = translationImportStatus
             }
+        } else {
+            translationImportStatus = when {
+                uri == null -> "Pemilihan file dibatalkan."
+                fieldAnalysis == null -> "Analisis field hilang. Analisis ulang field sebelum mengimpor."
+                else -> "Impor tidak dapat dimulai."
+            }
+            status = translationImportStatus
         }
     }
 
