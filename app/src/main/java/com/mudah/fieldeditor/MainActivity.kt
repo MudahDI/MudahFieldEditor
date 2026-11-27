@@ -110,12 +110,19 @@ class MainActivity : ComponentActivity() {
                 if (bytes.size > 16 * 1024 * 1024) {
                     throw IllegalArgumentException("Ukuran proyek terlalu besar (maksimal 16 MB).")
                 }
-                val json = org.json.JSONObject(bytes.toString(Charsets.UTF_8))
+                val importedText = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
                 val info = analysis.scriptInfo
                     ?: throw IllegalStateException("Metadata field belum tersedia.")
                 val currentDialogs = info.dialogInfo?.dialogs
                     ?: throw IllegalStateException("Tabel dialog belum tersedia.")
-                if (json.optString("format") != "MudahFieldEditor-translation-draft") {
+
+                if (!importedText.trimStart().startsWith("{")) {
+                    val imported = parseTextTranslationImport(importedText, currentDialogs)
+                    dialogTranslations.putAll(imported)
+                    status = "Impor TXT berhasil: ${imported.size} draf dialog diterapkan. Data game asli tidak diubah."
+                } else {
+                    val json = org.json.JSONObject(importedText)
+                    if (json.optString("format") != "MudahFieldEditor-translation-draft") {
                     throw IllegalArgumentException("Format file bukan proyek terjemahan Mudah Field Editor.")
                 }
                 if (json.optInt("version", -1) != 1) {
@@ -160,9 +167,10 @@ class MainActivity : ComponentActivity() {
                 if (imported.size != currentDialogs.size) {
                     throw IllegalArgumentException("Tidak semua dialog tercakup dalam proyek.")
                 }
-                dialogTranslations.clear()
-                dialogTranslations.putAll(imported)
-                status = "Impor berhasil: ${imported.size} draf dialog dipulihkan. Data game asli tidak diubah."
+                    dialogTranslations.clear()
+                    dialogTranslations.putAll(imported)
+                    status = "Impor JSON berhasil: ${imported.size} draf dialog dipulihkan. Data game asli tidak diubah."
+                }
             } catch (error: Exception) {
                 status = "Gagal mengimpor proyek: ${error.message ?: "kesalahan tidak diketahui"}"
             }
@@ -487,9 +495,9 @@ class MainActivity : ComponentActivity() {
                                                     style = MaterialTheme.typography.labelSmall
                                                 )
                                                 Button(
-                                                    onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "*/*")) },
+                                                    onClick = { openTranslationImport.launch(arrayOf("application/json", "text/json", "text/plain", "*/*")) },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                                                ) { Text("Impor Proyek Terjemahan (JSON)") }
+                                                ) { Text("Impor Translasi (JSON / TXT)") }
                                                 Button(
                                                     onClick = { createTranslationExport.launch("${info.fieldName.ifBlank { "field" }}_translation.json") },
                                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
@@ -627,6 +635,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun parseTextTranslationImport(
+        source: String,
+        currentDialogs: List<FieldDialog>
+    ): Map<Int, String> {
+        val marker = Regex("(?m)^---TEXT(\\d{3,})---\\r?\\n")
+        val matches = marker.findAll(source).toList()
+        if (matches.isEmpty()) {
+            throw IllegalArgumentException("Format TXT tidak dikenali. Gunakan penanda ---TEXT000--- untuk setiap dialog.")
+        }
+
+        val currentIndexes = currentDialogs.map { it.index }.toSet()
+        val imported = linkedMapOf<Int, String>()
+        matches.forEachIndexed { position, match ->
+            val textId = match.groupValues[1].toIntOrNull()
+                ?: throw IllegalArgumentException("Nomor TEXT tidak valid.")
+            val dialogIndex = textId + 1
+            if (dialogIndex !in currentIndexes) {
+                throw IllegalArgumentException("TEXT${textId.toString().padStart(3, '0')} tidak tersedia pada field ini.")
+            }
+            if (imported.containsKey(dialogIndex)) {
+                throw IllegalArgumentException("Penanda TEXT${textId.toString().padStart(3, '0')} tercantum lebih dari sekali.")
+            }
+            val start = match.range.last + 1
+            val end = if (position + 1 < matches.size) matches[position + 1].range.first else source.length
+            val translated = source.substring(start, end).trimEnd('\\r', '\\n')
+            imported[dialogIndex] = translated
+        }
+        return imported
     }
 
     private fun buildTranslationJson(analysis: FieldAnalysis): String {
