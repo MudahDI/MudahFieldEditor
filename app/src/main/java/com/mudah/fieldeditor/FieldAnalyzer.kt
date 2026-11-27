@@ -325,9 +325,9 @@ object FieldAnalyzer {
         // English FF7 field text uses a dedicated 0x00..0xDF character table.
         // The table is taken from the documented FF7 field-text mapping.
         val normalChars =
-            " !\\\"#$%&'()*+,-./01234" +
+            " !\"#$%&'()*+,-./01234" +
             "56789:;<=>?@ABCDEFGHI" +
-            "JKLMNOPQRSTUVWXYZ[\\\\]^" +
+            "JKLMNOPQRSTUVWXYZ[\\]^" +
             "_\\u0060abcdefghijklmnopqrs" +
             "tuvwxyz{|}~ ÄÅÇÉÑÖÜáà" +
             "âäãåçéèêëíìîïñóòôöõúù" +
@@ -338,8 +338,8 @@ object FieldAnalyzer {
             "ÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ       "
 
         val specialChars = mapOf(
-            0xE0 to "{CHOICE}", 0xE1 to "\\t", 0xE2 to ", ", 0xE3 to ".\\\"", 0xE4 to "…\\\"",
-            0xE6 to "⑬", 0xE7 to "\\n", 0xE8 to "{NEW}\\n",
+            0xE0 to "{CHOICE}", 0xE1 to "\t", 0xE2 to ", ", 0xE3 to ".\"", 0xE4 to "…\"",
+            0xE6 to "⑬", 0xE7 to "\n", 0xE8 to "{NEW}\n",
             0xEA to "{CLOUD}", 0xEB to "{BARRET}", 0xEC to "{TIFA}", 0xED to "{AERITH}",
             0xEE to "{RED XIII}", 0xEF to "{YUFFIE}", 0xF0 to "{CAIT SITH}",
             0xF1 to "{VINCENT}", 0xF2 to "{CID}", 0xF3 to "{PARTY #1}",
