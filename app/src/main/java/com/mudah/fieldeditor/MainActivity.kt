@@ -91,171 +91,295 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Column(
+                    val filteredEntries = entries.filter {
+                        it.name.contains(searchQuery.trim(), ignoreCase = true)
+                    }
+
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 18.dp, vertical = 16.dp)
+                            .padding(horizontal = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "MUDAH FIELD EDITOR",
-                            color = Color(0xFF9CC7FF),
-                            fontSize = 12.sp,
-                            letterSpacing = 2.sp
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Final Fantasy VII",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = { openLgp.launch(arrayOf("*/*")) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Pilih flevel.lgp")
+                        item {
+                            Column(modifier = Modifier.padding(top = 14.dp)) {
+                                Text(
+                                    "MUDAH FIELD EDITOR",
+                                    color = Color(0xFF9CC7FF),
+                                    fontSize = 11.sp,
+                                    letterSpacing = 2.sp
+                                )
+                                Text(
+                                    "Final Fantasy VII",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = Color.White
+                                )
+                                Text(
+                                    "LGP Browser • Field Structure Inspector",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
-                        Text(
-                            text = selectedFileName,
-                            color = Color.LightGray,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Button(
-                            onClick = { readSelectedArchive() },
-                            enabled = selectedFile != null && !isReading,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(if (isReading) "Sedang membaca..." else "Baca Arsip")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = status,
-                            color = if (status.startsWith("Gagal")) Color(0xFFFF9B9B) else Color.LightGray,
-                            style = MaterialTheme.typography.bodySmall
-                        )
 
-                        if (entries.isNotEmpty()) {
-                            Spacer(Modifier.height(10.dp))
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                label = { Text("Cari nama file") }
-                            )
-                            val filteredEntries = entries.filter {
-                                it.name.contains(searchQuery.trim(), ignoreCase = true)
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("DAFTAR FILE", color = Color(0xFF9CC7FF), letterSpacing = 1.sp)
-                                Text("${filteredEntries.size} / ${entries.size}", color = Color.LightGray)
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            selectedMember?.let { member ->
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(Color(0xFF191E25), RoundedCornerShape(12.dp))
-                                        .padding(12.dp)
-                                ) {
-                                    Text(
-                                        "DIPILIH: ${member.entry.name} • ${formatSize(member.size)}",
-                                        color = Color(0xFFB8D6FF),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    if (member.storedName != member.entry.name) {
-                                        Text(
-                                            "Catatan: nama pada header data berbeda (${member.storedName}).",
-                                            color = Color(0xFFFFD18A),
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                    Spacer(Modifier.height(6.dp))
-                                    Button(
-                                        onClick = { createExport.launch(member.entry.name) },
-                                        enabled = !isExporting,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
-                                    }
-                                    Button(
-                                        onClick = { analyzeSelectedMember() },
-                                        enabled = !isAnalyzing,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(if (isAnalyzing) "Menganalisis..." else "Analisis Struktur Field")
-                                    }
-                                    fieldAnalysis?.let { analysis ->
-                                        Spacer(Modifier.height(8.dp))
-                                        Text("HASIL ANALISIS", color = Color(0xFF9CC7FF), letterSpacing = 1.sp)
-                                        Text(
-                                            "Dekompresi berhasil • ${formatSize(analysis.decompressedSize.toLong())} • ${analysis.sectionCount} section",
-                                            color = Color(0xFFB8D6FF),
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                        analysis.sections.forEach { section ->
-                                            Text(
-                                                "${section.index}. ${section.name}",
-                                                color = Color.White,
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                            Text(
-                                                "Offset 0x${section.offset.toString(16).uppercase()} • Data ${formatSize(section.dataLength)}",
-                                                color = Color.Gray,
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        }
-                                        Text(
-                                            "Pemeriksaan ini memvalidasi header dan batas 9 section. Isi skrip/dialog belum diuraikan.",
-                                            color = Color(0xFFFFD18A),
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            LazyColumn(
+                        item {
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .weight(1f)
-                                    .background(Color(0xFF191E25), RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .background(Color(0xFF191E25), RoundedCornerShape(14.dp))
+                                    .padding(12.dp)
                             ) {
-                                items(filteredEntries) { entry ->
-                                    val isSelected = selectedMember?.entry == entry
+                                Button(
+                                    onClick = { openLgp.launch(arrayOf("*/*")) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Pilih flevel.lgp")
+                                }
+                                Text(
+                                    selectedFileName,
+                                    color = Color.LightGray,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Button(
+                                    onClick = { readSelectedArchive() },
+                                    enabled = selectedFile != null && !isReading,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                ) {
+                                    Text(if (isReading) "Sedang membaca..." else "Baca Arsip")
+                                }
+                                Text(
+                                    status,
+                                    color = if (status.startsWith("Gagal")) Color(0xFFFF9B9B) else Color.LightGray,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 5.dp)
+                                )
+                            }
+                        }
+
+                        if (entries.isNotEmpty()) {
+                            item {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("Cari nama file") }
+                                )
+                            }
+
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "DAFTAR FILE",
+                                        color = Color(0xFF9CC7FF),
+                                        letterSpacing = 1.sp,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                    Text(
+                                        "${filteredEntries.size} dari ${entries.size}",
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+
+                            selectedMember?.let { member ->
+                                item {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(
-                                                if (isSelected) Color(0xFF26384D) else Color.Transparent,
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable { inspectEntry(entry) }
-                                            .padding(horizontal = 9.dp, vertical = 9.dp)
+                                            .background(Color(0xFF202A36), RoundedCornerShape(14.dp))
+                                            .padding(12.dp)
                                     ) {
-                                        Text(entry.name, color = Color.White, style = MaterialTheme.typography.bodyMedium)
                                         Text(
-                                            "Offset: 0x${entry.offset.toString(16).uppercase()}",
+                                            "FILE TERPILIH",
+                                            color = Color(0xFF9CC7FF),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            member.entry.name,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                        Text(
+                                            "Ukuran: ${formatSize(member.size)}",
+                                            color = Color.LightGray,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        if (member.storedName != member.entry.name) {
+                                            Text(
+                                                "Nama header berbeda: ${member.storedName}",
+                                                color = Color(0xFFFFD18A),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        Button(
+                                            onClick = { createExport.launch(member.entry.name) },
+                                            enabled = !isExporting,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 8.dp)
+                                        ) {
+                                            Text(if (isExporting) "Mengekspor..." else "Ekspor File")
+                                        }
+                                        Button(
+                                            onClick = { analyzeSelectedMember() },
+                                            enabled = !isAnalyzing,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(if (isAnalyzing) "Menganalisis..." else "Analisis Struktur Field")
+                                        }
+                                    }
+                                }
+                            }
+
+                            fieldAnalysis?.let { analysis ->
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF191E25), RoundedCornerShape(14.dp))
+                                            .padding(12.dp)
+                                    ) {
+                                        Text(
+                                            "HASIL ANALISIS",
+                                            color = Color(0xFF9CC7FF),
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                        Text(
+                                            "Dekompresi berhasil",
+                                            color = Color(0xFF9FE0B2),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Ukuran hasil", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                            Text(formatSize(analysis.decompressedSize.toLong()), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Jumlah section", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                            Text("${analysis.sectionCount} / 9", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            "STRUKTUR SECTION",
+                                            color = Color(0xFF9CC7FF),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            letterSpacing = 1.sp
+                                        )
+                                        analysis.sections.forEach { section ->
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 7.dp)
+                                                    .background(Color(0xFF242B34), RoundedCornerShape(10.dp))
+                                                    .padding(10.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        "${section.index}. ${section.name}",
+                                                        color = Color.White,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Text(
+                                                        if (section.valid) "VALID" else "CEK",
+                                                        color = if (section.valid) Color(0xFF9FE0B2) else Color(0xFFFF9B9B),
+                                                        style = MaterialTheme.typography.labelSmall
+                                                    )
+                                                }
+                                                Text(
+                                                    "Pointer: 0x${section.offset.toString(16).uppercase()}",
+                                                    color = Color(0xFFB8D6FF),
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                                Text(
+                                                    "Data: ${formatSize(section.dataLength)} • Total: ${formatSize(section.totalLength)}",
+                                                    color = Color.Gray,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            "Validasi saat ini mencakup header, pointer, ukuran, dan batas section. Isi skrip/dialog belum diuraikan.",
+                                            color = Color(0xFFFFD18A),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(top = 10.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(
+                                items = filteredEntries,
+                                key = { "${it.name}_${it.offset}" }
+                            ) { entry ->
+                                val isSelected = selectedMember?.entry == entry
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            if (isSelected) Color(0xFF26384D) else Color(0xFF191E25),
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable { inspectEntry(entry) }
+                                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            entry.name,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            "Offset 0x${entry.offset.toString(16).uppercase()}",
                                             color = Color.Gray,
                                             style = MaterialTheme.typography.labelSmall
                                         )
                                     }
+                                    if (isSelected) {
+                                        Text("DIPILIH", color = Color(0xFF9CC7FF), style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
                             }
                         } else {
-                            Spacer(Modifier.weight(1f))
+                            item {
+                                Text(
+                                    "Pilih arsip, lalu tekan Baca Arsip. File di dalam flevel.lgp akan muncul di sini.",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 24.dp)
+                                )
+                            }
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Versi 0.4.0 • Field File Analyzer",
-                            color = Color.Gray,
-                            style = MaterialTheme.typography.labelSmall
-                        )
+
+                        item {
+                            Text(
+                                "Mudah Field Editor • Versi 0.5.0",
+                                color = Color.Gray,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 16.dp)
+                            )
+                        }
                     }
                 }
             }
