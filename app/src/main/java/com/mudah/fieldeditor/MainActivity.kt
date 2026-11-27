@@ -156,6 +156,69 @@ class MainActivity : ComponentActivity() {
                                 Text("${filteredEntries.size} / ${entries.size}", color = Color.LightGray)
                             }
                             Spacer(Modifier.height(6.dp))
+                            selectedMember?.let { member ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF191E25), RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        "DIPILIH: ${member.entry.name} • ${formatSize(member.size)}",
+                                        color = Color(0xFFB8D6FF),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    if (member.storedName != member.entry.name) {
+                                        Text(
+                                            "Catatan: nama pada header data berbeda (${member.storedName}).",
+                                            color = Color(0xFFFFD18A),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Button(
+                                        onClick = { createExport.launch(member.entry.name) },
+                                        enabled = !isExporting,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
+                                    }
+                                    Button(
+                                        onClick = { analyzeSelectedMember() },
+                                        enabled = !isAnalyzing,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(if (isAnalyzing) "Menganalisis..." else "Analisis Struktur Field")
+                                    }
+                                    fieldAnalysis?.let { analysis ->
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("HASIL ANALISIS", color = Color(0xFF9CC7FF), letterSpacing = 1.sp)
+                                        Text(
+                                            "Dekompresi berhasil • ${formatSize(analysis.decompressedSize.toLong())} • ${analysis.sectionCount} section",
+                                            color = Color(0xFFB8D6FF),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        analysis.sections.forEach { section ->
+                                            Text(
+                                                "${section.index}. ${section.name}",
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                            Text(
+                                                "Offset 0x${section.offset.toString(16).uppercase()} • Data ${formatSize(section.dataLength)}",
+                                                color = Color.Gray,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                        Text(
+                                            "Pemeriksaan ini memvalidasi header dan batas 9 section. Isi skrip/dialog belum diuraikan.",
+                                            color = Color(0xFFFFD18A),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -181,69 +244,6 @@ class MainActivity : ComponentActivity() {
                                             color = Color.Gray,
                                             style = MaterialTheme.typography.labelSmall
                                         )
-                                    }
-                                }
-                                item {
-                                    selectedMember?.let { member ->
-                                        Column(modifier = Modifier.padding(vertical = 10.dp)) {
-                                            Spacer(Modifier.height(4.dp))
-                                            Text(
-                                                "DIPILIH: ${member.entry.name} • ${formatSize(member.size)}",
-                                                color = Color(0xFFB8D6FF),
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                            if (member.storedName != member.entry.name) {
-                                                Text(
-                                                    "Catatan: nama pada header data berbeda (${member.storedName}).",
-                                                    color = Color(0xFFFFD18A),
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                            }
-                                            Button(
-                                                onClick = { createExport.launch(member.entry.name) },
-                                                enabled = !isExporting,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(if (isExporting) "Mengekspor..." else "Ekspor File Terpilih")
-                                            }
-                                            Button(
-                                                onClick = { analyzeSelectedMember() },
-                                                enabled = !isAnalyzing,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(if (isAnalyzing) "Menganalisis..." else "Analisis Struktur Field")
-                                            }
-                                            fieldAnalysis?.let { analysis ->
-                                                Spacer(Modifier.height(8.dp))
-                                                Text(
-                                                    "HASIL ANALISIS",
-                                                    color = Color(0xFF9CC7FF),
-                                                    letterSpacing = 1.sp
-                                                )
-                                                Text(
-                                                    "Dekompresi berhasil • ${formatSize(analysis.decompressedSize.toLong())} • ${analysis.sectionCount} section",
-                                                    color = Color(0xFFB8D6FF),
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                                analysis.sections.forEach { section ->
-                                                    Text(
-                                                        "${section.index}. ${section.name}",
-                                                        color = Color.White,
-                                                        style = MaterialTheme.typography.bodySmall
-                                                    )
-                                                    Text(
-                                                        "Offset 0x${section.offset.toString(16).uppercase()} • Data ${formatSize(section.dataLength)}",
-                                                        color = Color.Gray,
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
-                                                }
-                                                Text(
-                                                    "Pemeriksaan ini memvalidasi header dan batas 9 section. Isi skrip/dialog belum diuraikan.",
-                                                    color = Color(0xFFFFD18A),
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                            }
-                                        }
                                     }
                                 }
                             }
