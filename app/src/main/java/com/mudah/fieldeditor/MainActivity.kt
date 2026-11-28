@@ -867,9 +867,18 @@ class MainActivity : ComponentActivity() {
                 }
                 runOnUiThread {
                     batchTranslations.putAll(staged)
+                    val activeEntryName = selectedMember?.entry?.name
+                    val activeTranslations = activeEntryName?.let { staged[it] }
+                    if (activeTranslations != null) {
+                        dialogTranslations.clear()
+                        dialogTranslations.putAll(activeTranslations)
+                    }
                     isAnalyzing = false
                     val translatedCount = staged.values.sumOf { map -> map.values.count { it.isNotBlank() } }
                     status = "Impor TXT massal berhasil: ${staged.size} field tervalidasi, $translatedCount dialog berisi terjemahan. Arsip asli tidak diubah."
+                    if (activeTranslations != null) {
+                        translationImportStatus = "Draf dari TXT massal dimuat ke editor: ${activeTranslations.size} dialog."
+                    }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -1052,8 +1061,20 @@ class MainActivity : ComponentActivity() {
                 val result = FieldAnalyzer.analyze(bytes)
                 runOnUiThread {
                     fieldAnalysis = result
+                    dialogTranslations.clear()
+                    val importedForField = batchTranslations[member.entry.name]
+                    if (importedForField != null) {
+                        dialogTranslations.putAll(importedForField)
+                        translationImportStatus = "Draf TXT massal dimuat: ${importedForField.size} dialog."
+                    } else {
+                        translationImportStatus = ""
+                    }
                     isAnalyzing = false
-                    status = "Analisis berhasil: header dan 9 section terdeteksi."
+                    status = if (importedForField != null) {
+                        "Analisis berhasil. Terjemahan TXT untuk ${member.entry.name} dimuat ke editor."
+                    } else {
+                        "Analisis berhasil: header dan 9 section terdeteksi."
+                    }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
